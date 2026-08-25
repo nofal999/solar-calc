@@ -1,6 +1,8 @@
 import json
 import math
 import time
+from typing import Optional, Dict, Any
+
 from google import genai
 from google.genai import types
 from PIL import Image
@@ -135,7 +137,7 @@ else:
 
 
 # 5. دوال مساعدة
-def safe_float(value, default=0.0):
+def safe_float(value: Any, default: float = 0.0) -> float:
     if value is None:
         return default
     try:
@@ -144,7 +146,7 @@ def safe_float(value, default=0.0):
         return default
 
 
-def safe_int(value, default=1):
+def safe_int(value: Any, default: int = 1) -> int:
     if value is None:
         return default
     try:
@@ -153,7 +155,7 @@ def safe_int(value, default=1):
         return default
 
 
-def format_val(value, unit=""):
+def format_val(value: Any, unit: str = "") -> str:
     if (
         value is None
         or value == ""
@@ -166,14 +168,22 @@ def format_val(value, unit=""):
     return f"`{value} {unit}`".strip()
 
 
-def compress_image_for_speed(pil_img, max_dim=1024):
+def compress_image_for_speed(pil_img: Image.Image, max_dim: int = 1024) -> Image.Image:
     img_copy = pil_img.copy()
     img_copy.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
     return img_copy
 
 
-# دالة ذكية وشاملة للتحقق من توافق البطارية وعوامل الأمان
-def analyze_battery_safety_and_compatibility(inv_voltage, inv_max_charge, inv_ac_power, batt_voltage, batt_max_charge, batt_max_discharge, batt_ah, batt_kwh):
+def analyze_battery_safety_and_compatibility(
+    inv_voltage: float,
+    inv_max_charge: float,
+    inv_ac_power: float,
+    batt_voltage: float,
+    batt_max_charge: float,
+    batt_max_discharge: float,
+    batt_ah: float,
+    batt_kwh: float
+) -> Dict[str, Any]:
     results = {
         "voltage_match": False,
         "voltage_msg": "",
@@ -183,7 +193,7 @@ def analyze_battery_safety_and_compatibility(inv_voltage, inv_max_charge, inv_ac
         "safe_discharge_current": 0.0
     }
 
-    # 1. مطابقة الجهد الاسمي والفئات (Voltage Class Matching)
+    # 1. مطابقة الجهد الاسمي والفئات
     if inv_voltage <= 0 or batt_voltage <= 0:
         results["voltage_msg"] = "تعذر الجزم بتوافق الجهد لعدم توفر قراءة دقيقة."
     elif (40.0 <= inv_voltage <= 60.0) and (40.0 <= batt_voltage <= 60.0):
@@ -205,15 +215,14 @@ def analyze_battery_safety_and_compatibility(inv_voltage, inv_max_charge, inv_ac
         results["voltage_match"] = False
         results["voltage_msg"] = f"غير متوافق! جهد البطارية ({batt_voltage}V) يختلف جوهرياً عن جهد الإنفيرتر المطلوب ({inv_voltage}V)."
 
-    # 2. حساب حدود الأمان للتيار (Current Safety Margins - 80% Rule)
-    SAFETY_FACTOR = 0.80  # معامل أمان 80% لتجنب إجهاد BMS أو ارتفاع الحرارة
-    
+    # 2. حساب حدود الأمان للتيار (80% Rule)
+    SAFETY_FACTOR = 0.80
     if batt_max_charge > 0:
         results["safe_charge_current"] = round(batt_max_charge * SAFETY_FACTOR, 1)
     if batt_max_discharge > 0:
         results["safe_discharge_current"] = round(batt_max_discharge * SAFETY_FACTOR, 1)
 
-    # 3. فحص تيار الشحن بين الإنفيرتر والبطارية
+    # 3. فحص تيار الشحن
     if inv_max_charge > 0 and batt_max_charge > 0:
         if inv_max_charge > results["safe_charge_current"]:
             results["warnings"].append(
@@ -224,10 +233,9 @@ def analyze_battery_safety_and_compatibility(inv_voltage, inv_max_charge, inv_ac
                 f"تيار شحن الإنفيرتر ({inv_max_charge}A) آمن وضمن الحدود المسموحة للبطارية."
             )
 
-    # 4. فحص قدرة التفريغ المستمر مقابل قدرة الحمل الأقصى للإنفيرتر (Continuous Discharge vs Inverter Power)
+    # 4. فحص قدرة التفريغ المستمر مقابل قدرة الحمل الأقصى للإنفيرتر
     if inv_ac_power > 0 and batt_voltage > 0 and batt_max_discharge > 0:
         max_inverter_dc_current = round(inv_ac_power / (batt_voltage * 0.90), 1)
-        
         if max_inverter_dc_current > results["safe_discharge_current"]:
             results["warnings"].append(
                 f"عند تشغيل الإنفيرتر بالكامل ({inv_ac_power}W)، يسحب تيار مستمر يصل إلى ~`{max_inverter_dc_current}A` وهو أكبر من تيار التفريغ الآمن لبطارية واحدة (`{results['safe_discharge_current']}A`). ينصح بالتوازي مع بطارية إضافية لتقسيم الحمل وتجنب فصل الـ BMS."
@@ -237,7 +245,7 @@ def analyze_battery_safety_and_compatibility(inv_voltage, inv_max_charge, inv_ac
                 f"تيار التفريغ الآمن للبطارية ({results['safe_discharge_current']}A) يكفي لتشغيل قدرة الإنفيرتر الكاملة بحماية وأمان."
             )
 
-    # 5. فحص سعة البطارية الموصى بها (C-Rate Optimization)
+    # 5. فحص سعة البطارية الموصى بها
     if batt_ah > 0 and inv_ac_power > 0 and batt_voltage > 0:
         recommended_min_ah = round((inv_ac_power / batt_voltage) * 1.5, 0)
         if batt_ah < (inv_ac_power / batt_voltage):
@@ -248,146 +256,132 @@ def analyze_battery_safety_and_compatibility(inv_voltage, inv_max_charge, inv_ac
     return results
 
 
-# هيكل الـ JSON الموحد
-JSON_STRUCTURE = """
-{
-  "panel": {
-    "brand": "الشركة المصنعة للوح",
-    "model": "اسم وموديل اللوح",
-    "part_number": "الرقم التسلسلي أو رقم القطعة للوح إن وجد",
-    "type": "نوع اللوح (Monocrystalline, Polycrystalline, N-Type, etc.)",
-    "pmax": 0,
-    "voc": 0.0,
-    "vmp": 0.0,
-    "isc": 0.0,
-    "imp": 0.0
-  },
-  "inverter": {
-    "brand": "الشركة المصنعة للإنفيرتر",
-    "model": "اسم وموديل الإنفيرتر",
-    "part_number": "الرقم التسلسلي أو رقم الموديل الدقيق للإنفيرتر",
-    "type": "نوع الإنفيرتر (On-Grid, Off-Grid, Hybrid)",
-    "phase_type": "عدد الفازات (Single-Phase أو Three-Phase)",
-    "voltage_architecture": "نوع الجهد المستمر (High Voltage HV أو Low Voltage LV)",
-    "ac_rated_power_w": 0.0,
-    "v_max": 0.0,
-    "v_mppt_min": 0.0,
-    "v_mppt_max": 0.0,
-    "v_start": 0.0,
-    "mppt_count": 1,
-    "strings_per_mppt": 1,
-    "max_mppt_current": 0.0,
-    "battery": {
-      "supported": true,
-      "nominal_voltage_v": 0.0,
-      "battery_type": "أنواع البطاريات المدعومة",
-      "max_charge_current_a": 0.0
-    },
-    "ac_input_output": {
-      "nominal_ac_voltage_v": "جهد AC الاسمي",
-      "frequency_hz": "التردد (50Hz / 60Hz)",
-      "max_ac_input_current_a": 0.0,
-      "max_ac_output_current_a": 0.0
-    },
-    "startup_surge": {
-      "surge_power_va": 0.0,
-      "duration_seconds": 0.0
-    }
-  },
-  "external_battery": {
-    "brand": "الشركة المصنعة للبطارية الخارجية",
-    "model": "اسم وموديل البطارية الخارجية",
-    "chemistry": "نوع الكيمياء (LiFePO4, Gel, Lead-Acid, etc.)",
-    "capacity_ah": 0.0,
-    "capacity_kwh": 0.0,
-    "nominal_voltage_v": 0.0,
-    "max_charge_current_a": 0.0,
-    "max_discharge_current_a": 0.0
-  }
-}
-"""
-
-
-# 6. دالة الاستخراج عن طريق الصور
-def extract_via_images(panel_img, inverter_img, battery_img, key):
+# 6. دالة الاستخراج الموحدة باستخدام SDK الجديد والنماذج المحدثة
+def process_extraction(contents: list, key: str) -> dict:
     client = genai.Client(api_key=key)
+    
+    # تحديد التنسيق المتوقع بدقة
+    response_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "panel": {
+                "type": "OBJECT",
+                "properties": {
+                    "brand": {"type": "STRING"},
+                    "model": {"type": "STRING"},
+                    "part_number": {"type": "STRING"},
+                    "type": {"type": "STRING"},
+                    "pmax": {"type": "NUMBER"},
+                    "voc": {"type": "NUMBER"},
+                    "vmp": {"type": "NUMBER"},
+                    "isc": {"type": "NUMBER"},
+                    "imp": {"type": "NUMBER"}
+                }
+            },
+            "inverter": {
+                "type": "OBJECT",
+                "properties": {
+                    "brand": {"type": "STRING"},
+                    "model": {"type": "STRING"},
+                    "part_number": {"type": "STRING"},
+                    "type": {"type": "STRING"},
+                    "phase_type": {"type": "STRING"},
+                    "voltage_architecture": {"type": "STRING"},
+                    "ac_rated_power_w": {"type": "NUMBER"},
+                    "v_max": {"type": "NUMBER"},
+                    "v_mppt_min": {"type": "NUMBER"},
+                    "v_mppt_max": {"type": "NUMBER"},
+                    "v_start": {"type": "NUMBER"},
+                    "mppt_count": {"type": "INTEGER"},
+                    "strings_per_mppt": {"type": "INTEGER"},
+                    "max_mppt_current": {"type": "NUMBER"},
+                    "battery": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "supported": {"type": "BOOLEAN"},
+                            "nominal_voltage_v": {"type": "NUMBER"},
+                            "battery_type": {"type": "STRING"},
+                            "max_charge_current_a": {"type": "NUMBER"}
+                        }
+                    },
+                    "ac_input_output": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "nominal_ac_voltage_v": {"type": "STRING"},
+                            "frequency_hz": {"type": "STRING"},
+                            "max_ac_input_current_a": {"type": "NUMBER"},
+                            "max_ac_output_current_a": {"type": "NUMBER"}
+                        }
+                    },
+                    "startup_surge": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "surge_power_va": {"type": "NUMBER"},
+                            "duration_seconds": {"type": "NUMBER"}
+                        }
+                    }
+                }
+            },
+            "external_battery": {
+                "type": "OBJECT",
+                "properties": {
+                    "brand": {"type": "STRING"},
+                    "model": {"type": "STRING"},
+                    "chemistry": {"type": "STRING"},
+                    "capacity_ah": {"type": "NUMBER"},
+                    "capacity_kwh": {"type": "NUMBER"},
+                    "nominal_voltage_v": {"type": "NUMBER"},
+                    "max_charge_current_a": {"type": "NUMBER"},
+                    "max_discharge_current_a": {"type": "NUMBER"}
+                }
+            }
+        }
+    }
+
+    # استخدام النموذج السريع والأحدث gemini-2.5-flash
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=contents,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=response_schema,
+            temperature=0.1,
+        ),
+    )
+    return json.loads(response.text)
+
+
+def extract_via_images(panel_img, inverter_img, battery_img, key):
     contents = []
-    
-    p_img_small = compress_image_for_speed(panel_img)
-    contents.append(p_img_small)
-    
-    i_img_small = compress_image_for_speed(inverter_img)
-    contents.append(i_img_small)
+    contents.append(compress_image_for_speed(panel_img))
+    contents.append(compress_image_for_speed(inverter_img))
     
     if battery_img:
-        b_img_small = compress_image_for_speed(battery_img)
-        contents.append(b_img_small)
+        contents.append(compress_image_for_speed(battery_img))
 
-    prompt = f"""
-    أنت مهندس طاقة شمسية خبير. قم بتحليل الصور المرفقة (لوح شمسي، إنفيرتر، وبطارية إن وجدت) واستخرج البيانات التالية بأسلوب JSON فقط دون أي مقدمات:
-    {JSON_STRUCTURE}
-    ملاحظة: 
-    - أعد أرقاماً فقط للقيم الرقمية دون وحدات، واستخدم 0 للقيم المفقودة.
-    - إذا لم تكن صورة البطارية مرفقة، اجعل قيم external_battery تساوي 0 أو "غير معروف".
+    prompt = """
+    أنت مهندس طاقة شمسية خبير. قم بتحليل الصور المرفقة (لوح شمسي، إنفيرتر، وبطارية إن وجدت) واستخرج كافة المواصفات الكهربائية والبيانات الفنية بدقة وقم بملء الهيكل المحدد.
+    إذا لم تكن صورة البطارية مرفقة، اجعل قيم external_battery تساوي 0 أو "غير معروف".
     """
     contents.append(prompt)
-
-    fast_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-3.5-flash"]
-    for model_name in fast_models:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1,
-                ),
-            )
-            return json.loads(response.text)
-        except Exception:
-            continue
-    raise Exception("عذراً، متعذر الاتصال بالنموذج حالياً.")
+    return process_extraction(contents, key)
 
 
-# 7. دالة الاستخراج عن طريق اسم الموديل (نصياً)
 def extract_via_text(p_text, i_text, b_text, key):
-    client = genai.Client(api_key=key)
-
     b_prompt = f'والبطارية الخارجية المطلوبة: "{b_text}"' if b_text else 'لا يوجد بطارية خارجية مخصصة.'
-
     prompt = f"""
     أنت خبير ومدرك لقواعد بيانات كتالوجات الألواح الشمسية والإنفيرترات والبطاريات (Datasheets).
     اللوح الشمسي المطلوب: "{p_text}"
     الإنفيرتر المطلوب: "{i_text}"
     {b_prompt}
 
-    استخرج المواصفات الكهربائية القياسية لهذه الموديلات المحددة وعد بتقرير بأسلوب JSON بنفس الهيكل تماماً بدون أي مقدمات:
-    {JSON_STRUCTURE}
-
-    تنبيه هام:
-    - أعد أرقاماً فقط للقيم الرقمية (Numbers).
-    - إذا كانت المواصفات دقيقة من الكتالوج استخدمها مباشرة، وإن تعذر معرفة قيمة معينة استخدم 0 للرقم و "غير معروف" للنص.
-    - إذا لم تطلب بطارية، اجعل قيم external_battery تساوي 0 أو "غير معروف".
+    استخرج المواصفات الكهربائية القياسية لهذه الموديلات المحددة وقم بملء البيانات في الهيكل المحدد.
+    إذا لم تطلب بطارية، اجعل قيم external_battery تساوي 0 أو "غير معروف".
     """
-
-    fast_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-3.5-flash"]
-    for model_name in fast_models:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=[prompt],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1,
-                ),
-            )
-            return json.loads(response.text)
-        except Exception:
-            continue
-    raise Exception("عذراً، متعذر الاتصال بالنموذج حالياً.")
+    return process_extraction([prompt], key)
 
 
-# 8. زر التفعيل والتحليل
+# 7. زر التفعيل والتحليل
 if st.button("⚡ تحليل سريع واستخراج التقرير والحسابات"):
     if not api_key:
         st.error("⚠️ يرجى إدخال مفتاح Gemini API Key في القائمة الجانبية.")
@@ -411,16 +405,12 @@ if st.button("⚡ تحليل سريع واستخراج التقرير والحس
                     st.error(f"حدث خطأ أثناء معالجة الصور: {e}")
         else:
             if not panel_text_query or not inverter_text_query:
-                st.error(
-                    "⚠️ يرجى كتابة اسم الشركة والموديل للوح والإنفيرتر معاً."
-                )
+                st.error("⚠️ يرجى كتابة اسم الشركة والموديل للوح والإنفيرتر معاً.")
             elif enable_battery and not battery_text_query:
                 st.error("⚠️ لقد قمت بتفعيل فحص البطارية، يرجى كتابة اسم وموديل البطارية أيضاً.")
             else:
                 try:
-                    with st.spinner(
-                        "🔍 جاري البحث عن مواصفات الكتالوج والتحليل..."
-                    ):
+                    with st.spinner("🔍 جاري البحث عن مواصفات الكتالوج والتحليل..."):
                         res = extract_via_text(
                             panel_text_query, inverter_text_query, battery_text_query if enable_battery else "", api_key
                         )
@@ -435,7 +425,7 @@ if st.button("⚡ تحليل سريع واستخراج التقرير والحس
             )
 
 
-# 9. عرض النتائج والحسابات
+# 8. عرض النتائج والحسابات
 if "analysis_result" in st.session_state and st.session_state["analysis_result"]:
     res = st.session_state["analysis_result"]
     panel = res.get("panel", {})
@@ -709,7 +699,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         st.markdown("---")
         st.subheader("🧮 فحص وتوزيع عدد ألواح مخصص")
 
-        # معالجة وحل خطأ StreamlitValueBelowMinError لضمان أن القيمة الابتدائية والقيمة القصوى لا تقل عن 1
         initial_custom_value = max(1, int(rec_total_panels if rec_total_panels > 0 else min_total_panels))
         max_custom_value = max(1, int(max_total_panels * 2))
 
