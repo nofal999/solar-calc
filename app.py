@@ -256,11 +256,10 @@ def analyze_battery_safety_and_compatibility(
     return results
 
 
-# 6. دالة الاستخراج الموحدة باستخدام SDK الجديد والنماذج المحدثة
+# 6. دالة الاستخراج الموحدة باستعمال gemini-2.0-flash
 def process_extraction(contents: list, key: str) -> dict:
     client = genai.Client(api_key=key)
     
-    # تحديد التنسيق المتوقع بدقة
     response_schema = {
         "type": "OBJECT",
         "properties": {
@@ -338,9 +337,8 @@ def process_extraction(contents: list, key: str) -> dict:
         }
     }
 
-    # استخدام النموذج السريع والأحدث gemini-2.5-flash
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-2.0-flash",
         contents=contents,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
