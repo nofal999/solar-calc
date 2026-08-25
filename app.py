@@ -71,7 +71,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر")
-st.caption("تحليل ذكي بمعاملات أمان هندسية آمنة 100% للتوصيل الميداني")
+st.caption("تحليل ذكي لمعاملات الأمان والفروقات الكهربائية الكاملة للتوصيل الميداني")
 
 # الشريط الجانبي
 with st.sidebar:
@@ -154,12 +154,14 @@ if st.button("🔍 تحليل واستخرج الحسابات الأمنيّة")
                 voc = float(panel.get("voc", 0))
                 vmp = float(panel.get("vmp", 0))
                 isc = float(panel.get("isc", 0))
+                imp = float(panel.get("imp", 0))
 
                 v_max = float(inv.get("v_max", 0))
                 v_mppt_min = float(inv.get("v_mppt_min", 0))
                 v_mppt_max = float(inv.get("v_mppt_max", 0))
                 mppt_count = int(inv.get("mppt_count", 1))
                 strings_per_mppt = int(inv.get("strings_per_mppt", 1))
+                max_mppt_current = float(inv.get("max_mppt_current", 0))
 
                 # عرض البيانات المستخرجة
                 st.subheader("📋 المواصفات المستخرجة")
@@ -171,6 +173,7 @@ if st.button("🔍 تحليل واستخرج الحسابات الأمنيّة")
                     st.write(f"- جهد الدارة المفتوحة (Voc): `{voc} V`")
                     st.write(f"- الجهد التشغيلي (Vmp): `{vmp} V`")
                     st.write(f"- تيار القصر (Isc): `{isc} A`")
+                    st.write(f"- التيار التشغيلي (Imp): `{imp} A`")
 
                 with c2:
                     st.markdown("**🔹 الإنفيرتر**")
@@ -178,16 +181,17 @@ if st.button("🔍 تحليل واستخرج الحسابات الأمنيّة")
                     st.write(f"- نطاق MPPT: `{v_mppt_min} V` - `{v_mppt_max} V`")
                     st.write(f"- عدد MPPT: `{mppt_count}`")
                     st.write(f"- عدد Strings / MPPT: `{strings_per_mppt}`")
+                    st.write(f"- أقصى تيار لكل MPPT: `{max_mppt_current} A`")
 
                 # ==========================================
-                # 🛡️ الحسابات بـ معاملات الأمان
+                # 🛡️ الحسابات الشاملة بـ معاملات الأمان
                 # ==========================================
 
-                # 1. الحد الأدنى الآمن للألواح في السلسلة (Safety Margin +10% للحرارة العالية)
+                # 1. الحد الأدنى الآمن للألواح في السلسلة (Safety Margin +10% للحرارة العالية في الصيف)
                 v_mppt_min_safe = v_mppt_min * 1.10
                 min_string_safe = math.ceil(v_mppt_min_safe / vmp) if vmp > 0 else 0
 
-                # 2. الحد الأقصى الآمن للألواح في السلسلة (Safety Margin 1.15 للبرودة + 5% هامش أمان)
+                # 2. الحد الأقصى الآمن للألواح في السلسلة (Safety Margin 1.15 للبرودة في الشتاء + 5% هامش أمان للجهد)
                 voc_cold_safe = voc * 1.15
                 v_max_safe = v_max * 0.95
                 
@@ -214,14 +218,23 @@ if st.button("🔍 تحليل واستخرج الحسابات الأمنيّة")
                 rec_kw = round((rec_total_panels * pmax) / 1000, 2)
                 max_kw = round((max_total_panels * pmax) / 1000, 2)
 
+                # 3. فحص ومطابقة التيار (Current Check)
+                isc_safe = isc * 1.25  # تيار القصر المعدل مع معامل أمان الإشعاع الشديد
+
                 # عرض النتائج النهائية
                 st.markdown("---")
                 st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
 
+                # عرض تحذير التيار إذا كان يتجاوز قدرة الإنفيرتر
+                if max_mppt_current > 0 and isc_safe > max_mppt_current:
+                    st.warning(f"⚠️ **تنبيه مطابقة التيار:** تيار القصر المعدل للوح ({round(isc_safe, 2)} A) أكبر من أقصى تيار يتحمله مدخل MPPT في الإنفيرتر ({max_mppt_current} A). سيعمل النظام ولكن قد يحدث قص للتيار (Clipping) عند الذروة.")
+                elif max_mppt_current > 0:
+                    st.success(f"✅ **توافق التيار:** تيار اللوح المعدل ({round(isc_safe, 2)} A) متوافق تماماً مع مدخل الإنفيرتر ({max_mppt_current} A).")
+
                 st.success(f"""
                 🛡️ **حدود الأمان للسلسلة الواحدة (String Limits):**
-                * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح.
-                * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً.
+                * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح (لحماية النظام من الانخفاض عند ارتفاع الحرارة).
+                * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً (لحماية الإنفيرتر من ارتفاع الجهد في البرودة).
                 * **العدد الموصى به مثالياً بالسلسلة:** `{rec_string}` ألواح.
                 """)
 
