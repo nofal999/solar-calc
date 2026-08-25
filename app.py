@@ -300,8 +300,10 @@ def clean_json_response(text: str) -> str:
 
 def process_extraction(contents: list, key: str) -> dict:
     genai.configure(api_key=key.strip())
-    model_name = "gemini-2.5-flash"
-
+    
+    # محاولة استخدام أحدث النماذج المتاحة تدريجياً لضمان عدم حدوث خطأ 404
+    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+    
     system_instruction = """
     أنت مهندس طاقة شمسية خبير. استخرج المواصفات وأعد الإجابة بصيغة JSON حصراً وحسب الهيكل التالي بدون أي نصوص إضافية:
     {
@@ -318,32 +320,39 @@ def process_extraction(contents: list, key: str) -> dict:
     """
 
     all_inputs = [system_instruction] + contents
-    
-    try:
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(
-            all_inputs,
-            generation_config={"response_mime_type": "application/json", "temperature": 0.1}
-        )
-        cleaned_json = clean_json_response(response.text)
-        return json.loads(cleaned_json)
-    except Exception as e:
+    last_exception = None
+
+    for m_name in models_to_try:
         try:
-            available_models = [
-                m.name for m in genai.list_models() 
-                if 'generateContent' in m.supported_generation_methods
-            ]
-            if available_models:
-                fallback_model = genai.GenerativeModel(available_models[0])
-                response = fallback_model.generate_content(
-                    all_inputs,
-                    generation_config={"response_mime_type": "application/json", "temperature": 0.1}
-                )
-                cleaned_json = clean_json_response(response.text)
-                return json.loads(cleaned_json)
-        except Exception:
-            pass
-        raise Exception(f"تعذر استخراج البيانات من API: {str(e)}")
+            model = genai.GenerativeModel(m_name)
+            response = model.generate_content(
+                all_inputs,
+                generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+            )
+            cleaned_json = clean_json_response(response.text)
+            return json.loads(cleaned_json)
+        except Exception as e:
+            last_exception = e
+            continue
+
+    # محاولة نهائية عبر جلب أي نموذج متاح تلقائياً في حساب المستخدم
+    try:
+        available_models = [
+            m.name for m in genai.list_models() 
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        if available_models:
+            fallback_model = genai.GenerativeModel(available_models[0].replace("models/", ""))
+            response = fallback_model.generate_content(
+                all_inputs,
+                generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+            )
+            cleaned_json = clean_json_response(response.text)
+            return json.loads(cleaned_json)
+    except Exception as e:
+        last_exception = e
+
+    raise Exception(f"تعذر استخراج البيانات من API: {str(last_exception)}")
 
 
 def extract_via_images(panel_img, inverter_img, battery_img, key):
