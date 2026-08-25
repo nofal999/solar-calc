@@ -13,14 +13,58 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# تخصيص واجهة المستخدم
+# تخصيص واجهة المستخدم لدعم اللغة العربية بالكامل من اليمين إلى اليسار (RTL)
 st.markdown(
     """
     <style>
-    .main { text-align: right; direction: rtl; }
-    div[data-testid="stMarkdownContainer"] { text-align: right; }
-    .stButton>button { width: 100%; background-color: #0284c7; color: white; border-radius: 8px; height: 3em; font-weight: bold; }
-    .metric-card { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; margin-bottom: 10px; }
+    /* الاتجاه العام للصفحة والنصوص */
+    html, body, [data-testid="stAppViewContainer"], .main {
+        direction: rtl;
+        text-align: right;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    /* ضبط محاذاة كافة نصوص Markdown والأشرطة الجانبية */
+    div[data-testid="stMarkdownContainer"] p,
+    div[data-testid="stMarkdownContainer"] h1,
+    div[data-testid="stMarkdownContainer"] h2,
+    div[data-testid="stMarkdownContainer"] h3,
+    div[data-testid="stMarkdownContainer"] h4,
+    div[data-testid="stMarkdownContainer"] li {
+        text-align: right !important;
+        direction: rtl !important;
+    }
+
+    /* ضبط اتجاه القوائم النقطية */
+    ul, ol {
+        padding-right: 1.5rem !important;
+        padding-left: 0rem !important;
+    }
+
+    /* ضبط اتجاه علامات التبويب Tabs */
+    button[data-baseweb="tab"] {
+        direction: rtl !important;
+    }
+    div[data-baseweb="tab-list"] {
+        flex-direction: row-reverse !important;
+        justify-content: flex-end !important;
+    }
+
+    /* ضبط صندوق رفع الملفات */
+    section[data-testid="stFileUploadDropzone"] {
+        direction: rtl;
+        text-align: right;
+    }
+
+    /* تنسيق الأزرار */
+    .stButton>button {
+        width: 100%;
+        background-color: #0284c7;
+        color: white;
+        border-radius: 8px;
+        height: 3em;
+        font-weight: bold;
+    }
     </style>
 """,
     unsafe_allow_html=True,
