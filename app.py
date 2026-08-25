@@ -100,6 +100,26 @@ uploaded_inverter = st.file_uploader(
 )
 
 
+def safe_float(value, default=0.0):
+    """دالة أمان لتحويل القيم إلى float دون التسبب في خطأ NoneType"""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_int(value, default=1):
+    """دالة أمان لتحويل القيم إلى int دون التسبب في خطأ NoneType"""
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 def extract_data_via_gemini(panel_img, inverter_img, key):
     client = genai.Client(api_key=key)
 
@@ -127,7 +147,7 @@ def extract_data_via_gemini(panel_img, inverter_img, key):
         "max_mppt_current": 0.0
       }
     }
-    ملاحظة: تأكد أن القيم العددية تعود بأرقام فقط (Numbers) بدون كتابة أصل الوحدات (مثل V أو A أو W).
+    ملاحظة: تأكد أن القيم العددية تعود بأرقام فقط (Numbers) بدون كتابة أصل الوحدات (مثل V أو A أو W). وإذا لم تكن القيمة واضحة في الصورة اكتب 0 بدلاً من null.
     """
 
     response = client.models.generate_content(
@@ -156,18 +176,19 @@ if st.button("🔍 تحليل واستخرج الحسابات الأمنيّة")
                 panel = res.get("panel", {})
                 inv = res.get("inverter", {})
 
-                pmax = float(panel.get("pmax", 0))
-                voc = float(panel.get("voc", 0))
-                vmp = float(panel.get("vmp", 0))
-                isc = float(panel.get("isc", 0))
-                imp = float(panel.get("imp", 0))
+                # استخراج القيم باستخدام دوال الأمان لمنع خطأ NoneType
+                pmax = safe_float(panel.get("pmax"))
+                voc = safe_float(panel.get("voc"))
+                vmp = safe_float(panel.get("vmp"))
+                isc = safe_float(panel.get("isc"))
+                imp = safe_float(panel.get("imp"))
 
-                v_max = float(inv.get("v_max", 0))
-                v_mppt_min = float(inv.get("v_mppt_min", 0))
-                v_mppt_max = float(inv.get("v_mppt_max", 0))
-                mppt_count = int(inv.get("mppt_count", 1))
-                strings_per_mppt = int(inv.get("strings_per_mppt", 1))
-                max_mppt_current = float(inv.get("max_mppt_current", 0))
+                v_max = safe_float(inv.get("v_max"))
+                v_mppt_min = safe_float(inv.get("v_mppt_min"))
+                v_mppt_max = safe_float(inv.get("v_mppt_max"))
+                mppt_count = safe_int(inv.get("mppt_count"), default=1)
+                strings_per_mppt = safe_int(inv.get("strings_per_mppt"), default=1)
+                max_mppt_current = safe_float(inv.get("max_mppt_current"))
 
                 # عرض البيانات المستخرجة
                 st.subheader("📋 المواصفات المستخرجة")
@@ -189,97 +210,101 @@ if st.button("🔍 تحليل واستخرج الحسابات الأمنيّة")
                     st.write(f"- عدد Strings / MPPT: `{strings_per_mppt}`")
                     st.write(f"- أقصى تيار لكل MPPT: `{max_mppt_current} A`")
 
-                # ==========================================
-                # 🛡️ الحسابات الشاملة بـ معاملات الأمان
-                # ==========================================
+                # التحقق من وجود القيم الأساسية قبل إجراء الحسابات
+                if voc == 0 or vmp == 0 or v_max == 0:
+                    st.error("⚠️ لم يتم تعيين كافة القيم الكهربائية الأساسية (مثل Voc أو Vmp أو DC Max) من الصور. يرجى التأكد من وضوح الصور المحملة.")
+                else:
+                    # ==========================================
+                    # 🛡️ الحسابات الشاملة بـ معاملات الأمان
+                    # ==========================================
 
-                # 1. الحد الأدنى الآمن للألواح في السلسلة (+10% للحرارة)
-                v_mppt_min_safe = v_mppt_min * 1.10
-                min_string_safe = math.ceil(v_mppt_min_safe / vmp) if vmp > 0 else 0
+                    # 1. الحد الأدنى الآمن للألواح في السلسلة (+10% للحرارة)
+                    v_mppt_min_safe = v_mppt_min * 1.10
+                    min_string_safe = math.ceil(v_mppt_min_safe / vmp) if vmp > 0 else 0
 
-                # 2. الحد الأقصى الآمن للألواح في السلسلة (1.15 للبرودة + 5% هامش أمان)
-                voc_cold_safe = voc * 1.15
-                v_max_safe = v_max * 0.95
-                
-                max_by_voc = math.floor(v_max_safe / voc_cold_safe) if voc_cold_safe > 0 else 0
-                max_by_mppt = math.floor(v_mppt_max / vmp) if vmp > 0 else max_by_voc
-                max_string_safe = min(max_by_voc, max_by_mppt)
-
-                # العدد الموصى به
-                rec_string = math.floor((min_string_safe + max_string_safe) / 2)
-                total_strings = mppt_count * strings_per_mppt
-
-                # حسابات الإجمالي
-                panels_per_mppt_min = min_string_safe * strings_per_mppt
-                panels_per_mppt_rec = rec_string * strings_per_mppt
-                panels_per_mppt_max = max_string_safe * strings_per_mppt
-
-                min_total_panels = min_string_safe * total_strings
-                rec_total_panels = rec_string * total_strings
-                max_total_panels = max_string_safe * total_strings
-
-                min_kw = round((min_total_panels * pmax) / 1000, 2)
-                rec_kw = round((rec_total_panels * pmax) / 1000, 2)
-                max_kw = round((max_total_panels * pmax) / 1000, 2)
-
-                # 3. فحص التيار
-                isc_safe = isc * 1.25
-
-                # عرض النتائج
-                st.markdown("---")
-                st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
-
-                if max_mppt_current > 0 and isc_safe > max_mppt_current:
-                    st.warning(f"⚠️ **تنبيه مطابقة التيار:** تيار القصر المعدل للوح ({round(isc_safe, 2)} A) أكبر من أقصى تيار يتحمله مدخل MPPT في الإنفيرتر ({max_mppt_current} A). سيعمل النظام ولكن قد يحدث قص للتيار (Clipping) عند الذروة.")
-                elif max_mppt_current > 0:
-                    st.success(f"✅ **توافق التيار:** تيار اللوح المعدل ({round(isc_safe, 2)} A) متوافق تماماً مع مدخل الإنفيرتر ({max_mppt_current} A).")
-
-                st.success(f"""
-                🛡️ **حدود الأمان للسلسلة الواحدة (String Limits):**
-                * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح.
-                * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً.
-                * **العدد الموصى به مثالياً بالسلسلة:** `{rec_string}` ألواح.
-                """)
-
-                st.markdown("### 🔀 تفاصيل توزيع الألواح على MPPT و String")
-
-                tab1, tab2, tab3 = st.tabs(["⭐ التوزيع المثالي", "🔴 الحد الأدنى", "🟢 الحد الأقصى"])
-
-                with tab1:
-                    st.info(f"""
-                    **القدرة الكلية للمنظومة:** `{rec_total_panels}` لوحاً ({rec_kw} kW)
-                    * **عدد مدخلات MPPT:** {mppt_count}
-                    * **عدد السلاسل (Strings) لكل MPPT:** {strings_per_mppt}
+                    # 2. الحد الأقصى الآمن للألواح في السلسلة (1.15 للبرودة + 5% هامش أمان)
+                    voc_cold_safe = voc * 1.15
+                    v_max_safe = v_max * 0.95
                     
-                    ---
-                    📌 **التوزيع الميداني:**
-                    * **لكل String:** ضع `{rec_string}` لوحاً على التوالي.
-                    * **لكل MPPT:** يحتاج إجمالي `{panels_per_mppt_rec}` لوحاً (موزعة على {strings_per_mppt} سلسلة).
-                    """)
+                    max_by_voc = math.floor(v_max_safe / voc_cold_safe) if voc_cold_safe > 0 else 0
+                    max_by_mppt = math.floor(v_mppt_max / vmp) if vmp > 0 and v_mppt_max > 0 else max_by_voc
+                    max_string_safe = min(max_by_voc, max_by_mppt) if max_by_mppt > 0 else max_by_voc
 
-                with tab2:
-                    st.warning(f"""
-                    **القدرة الكلية للمنظومة:** `{min_total_panels}` لوحاً ({min_kw} kW)
-                    * **عدد مدخلات MPPT:** {mppt_count}
-                    * **عدد السلاسل (Strings) لكل MPPT:** {strings_per_mppt}
-                    
-                    ---
-                    📌 **التوزيع الميداني:**
-                    * **لكل String:** ضع `{min_string_safe}` ألواح على التوالي.
-                    * **لكل MPPT:** يحتاج إجمالي `{panels_per_mppt_min}` لوحاً (موزعة على {strings_per_mppt} سلسلة).
-                    """)
+                    # العدد الموصى به
+                    rec_string = math.floor((min_string_safe + max_string_safe) / 2)
+                    total_strings = mppt_count * strings_per_mppt
 
-                with tab3:
+                    # حسابات الإجمالي
+                    panels_per_mppt_min = min_string_safe * strings_per_mppt
+                    panels_per_mppt_rec = rec_string * strings_per_mppt
+                    panels_per_mppt_max = max_string_safe * strings_per_mppt
+
+                    min_total_panels = min_string_safe * total_strings
+                    rec_total_panels = rec_string * total_strings
+                    max_total_panels = max_string_safe * total_strings
+
+                    min_kw = round((min_total_panels * pmax) / 1000, 2)
+                    rec_kw = round((rec_total_panels * pmax) / 1000, 2)
+                    max_kw = round((max_total_panels * pmax) / 1000, 2)
+
+                    # 3. فحص التيار
+                    isc_safe = isc * 1.25
+
+                    # عرض النتائج
+                    st.markdown("---")
+                    st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
+
+                    if max_mppt_current > 0 and isc_safe > max_mppt_current:
+                        st.warning(f"⚠️ **تنبيه مطابقة التيار:** تيار القصر المعدل للوح ({round(isc_safe, 2)} A) أكبر من أقصى تيار يتحمله مدخل MPPT في الإنفيرتر ({max_mppt_current} A). سيعمل النظام ولكن قد يحدث قص للتيار (Clipping) عند الذروة.")
+                    elif max_mppt_current > 0:
+                        st.success(f"✅ **توافق التيار:** تيار اللوح المعدل ({round(isc_safe, 2)} A) متوافق تماماً مع مدخل الإنفيرتر ({max_mppt_current} A).")
+
                     st.success(f"""
-                    **القدرة الكلية للمنظومة:** `{max_total_panels}` لوحاً ({max_kw} kW)
-                    * **عدد مدخلات MPPT:** {mppt_count}
-                    * **عدد السلاسل (Strings) لكل MPPT:** {strings_per_mppt}
-                    
-                    ---
-                    📌 **التوزيع الميداني:**
-                    * **لكل String:** ضع `{max_string_safe}` لوحاً على التوالي.
-                    * **لكل MPPT:** يحتاج إجمالي `{panels_per_mppt_max}` لوحاً (موزعة على {strings_per_mppt} سلسلة).
+                    🛡️ **حدود الأمان للسلسلة الواحدة (String Limits):**
+                    * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح.
+                    * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً.
+                    * **العدد الموصى به مثالياً بالسلسلة:** `{rec_string}` ألواح.
                     """)
+
+                    st.markdown("### 🔀 تفاصيل توزيع الألواح على MPPT و String")
+
+                    tab1, tab2, tab3 = st.tabs(["⭐ التوزيع المثالي", "🔴 الحد الأدنى", "🟢 الحد الأقصى"])
+
+                    with tab1:
+                        st.info(f"""
+                        **القدرة الكلية للمنظومة:** `{rec_total_panels}` لوحاً ({rec_kw} kW)
+                        * **عدد مدخلات MPPT:** {mppt_count}
+                        * **عدد السلاسل (Strings) لكل MPPT:** {strings_per_mppt}
+                        
+                        ---
+                        📌 **التوزيع الميداني:**
+                        * **لكل String:** ضع `{rec_string}` لوحاً على التوالي.
+                        * **لكل MPPT:** يحتاج إجمالي `{panels_per_mppt_rec}` لوحاً (موزعة على {strings_per_mppt} سلسلة).
+                        """)
+
+                    with tab2:
+                        st.warning(f"""
+                        **القدرة الكلية للمنظومة:** `{min_total_panels}` لوحاً ({min_kw} kW)
+                        * **عدد مدخلات MPPT:** {mppt_count}
+                        * **عدد السلاسل (Strings) لكل MPPT:** {strings_per_mppt}
+                        
+                        ---
+                        📌 **التوزيع الميداني:**
+                        * **لكل String:** ضع `{min_string_safe}` ألواح على التوالي.
+                        * **لكل MPPT:** يحتاج إجمالي `{panels_per_mppt_min}` لوحاً (موزعة على {strings_per_mppt} سلسلة).
+                        """)
+
+                    with tab3:
+                        st.success(f"""
+                        **القدرة الكلية للمنظومة:** `{max_total_panels}` لوحاً ({max_kw} kW)
+                        * **عدد مدخلات MPPT:** {mppt_count}
+                        * **عدد السلاسل (Strings) لكل MPPT:** {strings_per_mppt}
+                        
+                        ---
+                        📌 **التوزيع الميداني:**
+                        * **لكل String:** ضع `{max_string_safe}` لوحاً على التوالي.
+                        * **لكل MPPT:** يحتاج إجمالي `{panels_per_mppt_max}` لوحاً (موزعة على {strings_per_mppt} سلسلة).
+                        """)
 
         except Exception as e:
             st.error(f"حدث خطأ أثناء معالجة الحسابات: {e}")
