@@ -69,8 +69,7 @@ st.markdown(
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
 st.caption(
-    "تحليل ذكي متكامل للمواصفات الكهربائية، نوع الجهد، نظام الفازات،"
-    " البطاريات الخارجية، وتوزيع السلاسل الميدانية آلياً"
+    "تحليل ذكي متكامل للمواصفات الكهربائية، مع إدراج عوامل الأمان للبطاريات وسلاسل الألواح"
 )
 
 # 3. الشريط الجانبي
@@ -125,7 +124,7 @@ else:
     with cols[1]:
         inverter_text_query = st.text_input(
             "⚡ اسم الشركة والموديل للإنفيرتر:",
-            placeholder="مثال: Deye SUN-8K-SG04LP3-EU أو Growatt 5000ES",
+            placeholder="مثال: Deye SUN-5K-SG04LP1-EU أو Growatt 5000ES",
         )
     if enable_battery:
         with cols[2]:
@@ -171,6 +170,83 @@ def compress_image_for_speed(pil_img, max_dim=1024):
     img_copy = pil_img.copy()
     img_copy.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
     return img_copy
+
+
+# دالة ذكية وشاملة للتحقق من توافق البطارية وعوامل الأمان
+def analyze_battery_safety_and_compatibility(inv_voltage, inv_max_charge, inv_ac_power, batt_voltage, batt_max_charge, batt_max_discharge, batt_ah, batt_kwh):
+    results = {
+        "voltage_match": False,
+        "voltage_msg": "",
+        "warnings": [],
+        "recommendations": [],
+        "safe_charge_current": 0.0,
+        "safe_discharge_current": 0.0
+    }
+
+    # 1. مطابقة الجهد الاسمي والفئات (Voltage Class Matching)
+    if inv_voltage <= 0 or batt_voltage <= 0:
+        results["voltage_msg"] = "تعذر الجزم بتوافق الجهد لعدم توفر قراءة دقيقة."
+    elif (40.0 <= inv_voltage <= 60.0) and (40.0 <= batt_voltage <= 60.0):
+        results["voltage_match"] = True
+        results["voltage_msg"] = f"جهد البطارية ({batt_voltage}V) متوافق تماماً مع نظام الإنفيرتر ({inv_voltage}V) ضمن فئة 48V/51.2V القياسية."
+    elif (20.0 <= inv_voltage <= 30.0) and (20.0 <= batt_voltage <= 30.0):
+        results["voltage_match"] = True
+        results["voltage_msg"] = f"جهد البطارية ({batt_voltage}V) متوافق مع نظام الإنفيرتر ({inv_voltage}V) ضمن فئة 24V."
+    elif (10.0 <= inv_voltage <= 15.0) and (10.0 <= batt_voltage <= 15.0):
+        results["voltage_match"] = True
+        results["voltage_msg"] = f"جهد البطارية ({batt_voltage}V) متوافق مع نظام الإنفيرتر ({inv_voltage}V) ضمن فئة 12V."
+    elif inv_voltage >= 100.0 and batt_voltage >= 100.0 and abs(inv_voltage - batt_voltage) <= 60.0:
+        results["voltage_match"] = True
+        results["voltage_msg"] = f"جهد البطارية العالي HV ({batt_voltage}V) متوافق مع نطاق الإنفيرتر ({inv_voltage}V)."
+    elif abs(inv_voltage - batt_voltage) <= 5.0:
+        results["voltage_match"] = True
+        results["voltage_msg"] = f"الجهد متوافق تقريباً بين الإنفيرتر ({inv_voltage}V) والبطارية ({batt_voltage}V)."
+    else:
+        results["voltage_match"] = False
+        results["voltage_msg"] = f"غير متوافق! جهد البطارية ({batt_voltage}V) يختلف جوهرياً عن جهد الإنفيرتر المطلوب ({inv_voltage}V)."
+
+    # 2. حساب حدود الأمان للتيار (Current Safety Margins - 80% Rule)
+    SAFETY_FACTOR = 0.80  # معامل أمان 80% لتجنب إجهاد BMS أو ارتفاع الحرارة
+    
+    if batt_max_charge > 0:
+        results["safe_charge_current"] = round(batt_max_charge * SAFETY_FACTOR, 1)
+    if batt_max_discharge > 0:
+        results["safe_discharge_current"] = round(batt_max_discharge * SAFETY_FACTOR, 1)
+
+    # 3. فحص تيار الشحن بين الإنفيرتر والبطارية
+    if inv_max_charge > 0 and batt_max_charge > 0:
+        if inv_max_charge > results["safe_charge_current"]:
+            results["warnings"].append(
+                f"أقصى تيار شحن للإنفيرتر ({inv_max_charge}A) أعلى من تيار الشحن الآمن للبطارية بعامل الأمان ({results['safe_charge_current']}A). يجب ضبط أقصى تيار شحن في إعدادات الإنفيرتر (Max Charge Current) على `{results['safe_charge_current']} A` لحماية خلايا البطارية."
+            )
+        else:
+            results["recommendations"].append(
+                f"تيار شحن الإنفيرتر ({inv_max_charge}A) آمن وضمن الحدود المسموحة للبطارية."
+            )
+
+    # 4. فحص قدرة التفريغ المستمر مقابل قدرة الحمل الأقصى للإنفيرتر (Continuous Discharge vs Inverter Power)
+    if inv_ac_power > 0 and batt_voltage > 0 and batt_max_discharge > 0:
+        # حساب أقصى تيار يسحبه الإنفيرتر عند كفاءة 90%
+        max_inverter_dc_current = round(inv_ac_power / (batt_voltage * 0.90), 1)
+        
+        if max_inverter_dc_current > results["safe_discharge_current"]:
+            results["warnings"].append(
+                f"عند تشغيل الإنفيرتر بالكامل ({inv_ac_power}W)، يسحب تيار مستمر يصل إلى ~`{max_inverter_dc_current}A` وهو أكبر من تيار التفريغ الآمن لبطارية واحدة (`{results['safe_discharge_current']}A`). ينصح بالتوازي مع بطارية إضافية لتقسيم الحمل وتجنب فصل الـ BMS."
+            )
+        else:
+            results["recommendations"].append(
+                f"تيار التفريغ الآمن للبطارية ({results['safe_discharge_current']}A) يكفي لتشغيل قدرة الإنفيرتر الكاملة بحماية وأمان."
+            )
+
+    # 5. فحص سعة البطارية الموصى بها (C-Rate Optimization)
+    if batt_ah > 0 and inv_ac_power > 0 and batt_voltage > 0:
+        recommended_min_ah = round((inv_ac_power / batt_voltage) * 1.5, 0) # توصية بتفريغ لا يتجاوز 0.67C
+        if batt_ah < (inv_ac_power / batt_voltage):
+            results["warnings"].append(
+                f"سعة البطارية ({batt_ah}Ah) تعتبر صغيرة نسبياً على إنفيرتر بقدرة {inv_ac_power}W. يُفضل ألا تقل السعة الكلية عن `{recommended_min_ah}Ah` لمطابقة أحمال الذروة ولتوفير ساعات تشغيل معقولة."
+            )
+
+    return results
 
 
 # هيكل الـ JSON الموحد
@@ -471,10 +547,10 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         st.write(f"- **قدرة البدء اللحظية:** {format_val(s_power, 'VA')}")
         st.write(f"- **مدة التحمل:** {format_val(s_duration, 'ثانية')}")
 
-    # عرض وفحص البطارية الخارجية في حال تم تفعيلها
+    # عرض وفحص البطارية الخارجية وتطبيق عوامل الأمان
     if enable_battery or (ext_batt.get("nominal_voltage_v", 0) > 0):
         st.markdown("---")
-        st.subheader("🔋 مطابقة البطارية الخارجية المدخلة")
+        st.subheader("🛡️ تحليل مطابقة البطارية الخارجية وعوامل الأمان")
         
         b_brand = ext_batt.get("brand", "غير معروف")
         b_model = ext_batt.get("model", "غير معروف")
@@ -490,19 +566,46 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
             st.write(f"**الشركة المصنعة:** {format_val(b_brand)}")
             st.write(f"**الموديل:** {format_val(b_model)}")
             st.write(f"**نوع الكيمياء:** {format_val(b_chem)}")
-            st.write(f"- **السعة:** {format_val(b_ah, 'Ah')} ({format_val(b_kwh, 'kWh')})")
+            st.write(f"- **السعة الاسمية:** {format_val(b_ah, 'Ah')} ({format_val(b_kwh, 'kWh')})")
         with col_b2:
             st.write(f"- **الجهد الاسمي:** {format_val(b_volts, 'V')}")
-            st.write(f"- **أقصى تيار شحن:** {format_val(b_max_chg, 'A')}")
-            st.write(f"- **أقصى تيار تفريغ:** {format_val(b_max_dischg, 'A')}")
+            st.write(f"- **أقصى تيار شحن (Max Charge):** {format_val(b_max_chg, 'A')}")
+            st.write(f"- **أقصى تيار تفريغ (Max Discharge):** {format_val(b_max_dischg, 'A')}")
 
-        # فحص توافق جهد البطارية مع الإنفيرتر
+        # إجراء فحص الأمان الشامل للبطارية
         inv_batt_v = safe_float(batt_info.get("nominal_voltage_v"))
-        if inv_batt_v > 0 and b_volts > 0:
-            if abs(inv_batt_v - b_volts) < 2.0:
-                st.success(f"✅ **مطابقة الجهد:** جهد البطارية الخارجية ({b_volts}V) متوافق تماماً مع جهد نظام الإنفيرتر ({inv_batt_v}V).")
-            else:
-                st.error(f"❌ **عدم مطابقة الجهد:** جهد البطارية الخارجية ({b_volts}V) لا يتوافق مع جهد نظام الإنفيرتر المطلوبة ({inv_batt_v}V)!")
+        inv_max_chg = safe_float(batt_info.get("max_charge_current_a"))
+        
+        batt_analysis = analyze_battery_safety_and_compatibility(
+            inv_voltage=inv_batt_v,
+            inv_max_charge=inv_max_chg,
+            inv_ac_power=ac_rated_power,
+            batt_voltage=b_volts,
+            batt_max_charge=b_max_chg,
+            batt_max_discharge=b_max_dischg,
+            batt_ah=b_ah,
+            batt_kwh=b_kwh
+        )
+
+        st.markdown("#### ⚙️ نتائج الفحص وعوامل الأمان للبطارية:")
+        
+        if batt_analysis["voltage_match"]:
+            st.success(f"✅ **مطابقة الجهد:** {batt_analysis['voltage_msg']}")
+        else:
+            st.error(f"❌ **عدم مطابقة الجهد:** {batt_analysis['voltage_msg']}")
+
+        if batt_analysis["safe_charge_current"] > 0 or batt_analysis["safe_discharge_current"] > 0:
+            st.info(f"""
+            🛡️ **حدود التشغيل الآمنة للبطارية (عامل أمان 80%):**
+            * **تيار الشحن الآمن المستمر:** `{batt_analysis['safe_charge_current']}` أمبير (من أصل `{b_max_chg}`A).
+            * **تيار التفريغ الآمن المستمر:** `{batt_analysis['safe_discharge_current']}` أمبير (من أصل `{b_max_dischg}`A).
+            """)
+
+        # عرض التوصيات والتنبيهات
+        for rec in batt_analysis["recommendations"]:
+            st.success(f"✔️ {rec}")
+        for warn in batt_analysis["warnings"]:
+            st.warning(f"⚠️ **تنبيه أمان:** {warn}")
 
     # الحسابات الكهربائية للألواح والإنفيرتر
     if voc == 0 or vmp == 0 or v_max == 0:
