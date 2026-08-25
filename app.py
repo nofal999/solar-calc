@@ -87,7 +87,7 @@ with st.sidebar:
 
 # 4. التبديل بين طريقتي البحث
 search_mode = st.radio(
-    " اختر طريقة إدخال البيانات للبحث والتحليل:",
+    "اختر طريقة إدخال البيانات للبحث والتحليل:",
     ["📸 1. البحث عن طريق الصور (إرفاق الملصقات)", "✍️ 2. البحث عن طريق اسم الشركة والموديل (نصياً)"],
     index=0,
 )
@@ -137,7 +137,7 @@ else:
             )
 
 
-# 5. دوال مساعدة
+# 5. دوال مساعدة وتحضير الصور
 def safe_float(value: Any, default: float = 0.0) -> float:
     if value is None:
         return default
@@ -169,8 +169,11 @@ def format_val(value: Any, unit: str = "") -> str:
     return f"`{value} {unit}`".strip()
 
 
-def compress_image_for_speed(pil_img: Image.Image, max_dim: int = 1024) -> Image.Image:
+def prepare_image(pil_img: Image.Image, max_dim: int = 1024) -> Image.Image:
+    """تحضير الصورة: تحويلها لـ RGB وتصغير أبعادها لضمان التوافق وحجم البيانات."""
     img_copy = pil_img.copy()
+    if img_copy.mode != "RGB":
+        img_copy = img_copy.convert("RGB")
     img_copy.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
     return img_copy
 
@@ -287,9 +290,9 @@ def analyze_battery_safety_and_compatibility(
     return results
 
 
-# 6. دالة الاستخراج الذكية مع إدارة تجاوز الحصص (Rate Limit Safe)
+# 6. دالة الاستخراج الذكية مع المعالجة المباشرة للأخطاء
 def process_extraction(contents: list, key: str) -> dict:
-    client = genai.Client(api_key=key)
+    client = genai.Client(api_key=key.strip())
 
     response_schema = {
         "type": "OBJECT",
@@ -368,48 +371,34 @@ def process_extraction(contents: list, key: str) -> dict:
         },
     }
 
-    # تم تصحيح أسماء النماذج الرسمية
-    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash"]
+    # استخدام الموديل المستقر والرسمي
+    model_name = "gemini-2.5-flash"
 
-    for model_name in models_to_try:
-        max_retries = 2
-        for attempt in range(max_retries):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=response_schema,
-                        temperature=0.1,
-                    ),
-                )
-                return json.loads(response.text)
+    try:
+        response = client.models.generate_content(
+            model=model_name,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=response_schema,
+                temperature=0.1,
+            ),
+        )
+        return json.loads(response.text)
 
-            except APIError as e:
-                if e.code == 429:
-                    if attempt < max_retries - 1:
-                        time.sleep(5)
-                        continue
-                    else:
-                        break
-                else:
-                    break
-            except Exception:
-                break
-
-    raise Exception(
-        "تعذر استخراج البيانات. يرجى التأكد من صحة مفتاح Gemini API Key أو محاولة رفع صور أكثر وضوحاً."
-    )
+    except APIError as e:
+        raise Exception(f"خطأ في الاتصال بالخدمة ({e.code}): {e.message}")
+    except Exception as e:
+        raise Exception(f"تعذر معالجة الطلب: {str(e)}")
 
 
 def extract_via_images(panel_img, inverter_img, battery_img, key):
     contents = []
-    contents.append(compress_image_for_speed(panel_img))
-    contents.append(compress_image_for_speed(inverter_img))
+    contents.append(prepare_image(panel_img))
+    contents.append(prepare_image(inverter_img))
 
     if battery_img:
-        contents.append(compress_image_for_speed(battery_img))
+        contents.append(prepare_image(battery_img))
 
     prompt = """
     أنت مهندس طاقة شمسية خبير. قم بتحليل الصور المرفقة (لوح شمسي، إنفيرتر، وبطارية إن وجدت) واستخرج كافة المواصفات الكهربائية والبيانات الفنية بدقة وقم بملء الهيكل المحدد.
@@ -462,7 +451,7 @@ if st.button("⚡ تحليل سريع واستخرج التقرير والحسا
                     with st.spinner("⚡ جاري قراءة الملصقات وتحليل الصور وحساب الأمان تلقائياً..."):
                         res = extract_via_images(p_img, i_img, b_img, api_key)
                 except Exception as e:
-                    st.error(f"حدث خطأ أثناء معالجة الصور: {e}")
+                    st.error(f"❌ {e}")
         else:
             if not panel_text_query or not inverter_text_query:
                 st.error("⚠️ يرجى كتابة اسم الشركة والموديل للوح والإنفيرتر معاً.")
@@ -478,12 +467,12 @@ if st.button("⚡ تحليل سريع واستخرج التقرير والحسا
                             api_key,
                         )
                 except Exception as e:
-                    st.error(f"حدث خطأ أثناء البحث بالنص: {e}")
+                    st.error(f"❌ {e}")
 
         if res:
             st.session_state["analysis_result"] = res
             st.toast(
-                f"🚀 تم التحليل واستخراج المواصفات في {round(time.time() - start_t, 2)} ثوانٍ!",
+                f"🚀 تم التحليل واستخرجت المواصفات في {round(time.time() - start_t, 2)} ثوانٍ!",
                 icon="⚡",
             )
 
