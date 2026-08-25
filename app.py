@@ -23,7 +23,7 @@ st.markdown(
     .metric-card { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; margin-bottom: 10px; }
     </style>
 """,
-    unsafe_style_allow_html=True,
+    unsafe_allow_html=True,
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر")
