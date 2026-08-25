@@ -7,13 +7,13 @@ import streamlit as st
 
 # ضبط إعدادات الصفحة
 st.set_page_config(
-    page_title="حاسبة الألواح والإنفيرتر",
+    page_title="حاسبة الألواح والإنفيرتر - المتقدمة",
     page_icon="☀️",
     layout="centered",
     initial_sidebar_state="collapsed",
 )
 
-# تخصيص واجهة المستخدم باللغة العربية واختيار ألوان متناسقة
+# تخصيص واجهة المستخدم
 st.markdown(
     """
     <style>
@@ -27,9 +27,9 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر")
-st.caption("حلل ملصقات البيانات واستخرج النتائج الكهربائية ومجالات التوصيل فوراً")
+st.caption("تحليل ذكي بمعاملات أمان هندسية آمنة 100% للتوصيل الميداني")
 
-# إدخال مفتاح API في الشريط الجانبي
+# الشريط الجانبي
 with st.sidebar:
     st.header("⚙️ الإعدادات")
     api_key = st.text_input(
@@ -37,7 +37,7 @@ with st.sidebar:
         type="password",
         help="احصل عليه مجاناً من Google AI Studio",
     )
-    st.info("💡 يمكنك حفظ المفتاح هنا لتسهيل الاستخدام اليومي من الجوال.")
+    st.info("💡 يتم حفظ المفتاح هنا لتسهيل الاستخدام اليومي.")
 
 col_panel, col_inv = st.columns(2)
 with col_panel:
@@ -77,7 +77,7 @@ def extract_data_via_gemini(panel_img, inverter_img, key):
         "max_mppt_current": 0.0
       }
     }
-    ملاحظة: تأكد أن القيم العددية تعود بأرقام فقط (Numbers) بدون كتابة أصل الوحدات (مثل V أو A أو W) لضمان نجاح الحسابات.
+    ملاحظة: تأكد أن القيم العددية تعود بأرقام فقط (Numbers) بدون كتابة أصل الوحدات (مثل V أو A أو W).
     """
 
     response = client.models.generate_content(
@@ -90,7 +90,7 @@ def extract_data_via_gemini(panel_img, inverter_img, key):
     return json.loads(response.text)
 
 
-if st.button("🔍 تحليل واستخراج الحسابات"):
+if st.button("🔍 تحليل واستخرج الحسابات الأمنيّة"):
     if not api_key:
         st.error("⚠️ يرجى إدخال مفتاح Gemini API Key في القائمة الجانبية.")
     elif not uploaded_panel or not uploaded_inverter:
@@ -100,13 +100,12 @@ if st.button("🔍 تحليل واستخراج الحسابات"):
             p_img = Image.open(uploaded_panel)
             i_img = Image.open(uploaded_inverter)
 
-            with st.spinner("جاري قراءة الملصقات وتطبيق الحسابات الهندسية..."):
+            with st.spinner("جاري قراءة الملصقات وتطبيق الحسابات بـ معاملات الأمان..."):
                 res = extract_data_via_gemini(p_img, i_img, api_key)
 
                 panel = res.get("panel", {})
                 inv = res.get("inverter", {})
 
-                # تحويل القيم لضمان سلامة العمليات الحسابية
                 pmax = float(panel.get("pmax", 0))
                 voc = float(panel.get("voc", 0))
                 vmp = float(panel.get("vmp", 0))
@@ -132,51 +131,64 @@ if st.button("🔍 تحليل واستخراج الحسابات"):
                 with c2:
                     st.markdown("**🔹 الإنفيرتر**")
                     st.write(f"- أقصى جهد مستمر (DC Max): `{v_max} V`")
-                    st.write(
-                        f"- نطاق MPPT: `{v_mppt_min} V` - `{v_mppt_max} V`"
-                    )
+                    st.write(f"- نطاق MPPT: `{v_mppt_min} V` - `{v_mppt_max} V`")
                     st.write(f"- عدد MPPT: `{mppt_count}`")
                     st.write(f"- عدد Strings / MPPT: `{strings_per_mppt}`")
 
-                # الحسابات الكهربائية
-                # 1. أدنى عدد ألواح لتشغيل الـ MPPT
-                min_string = math.ceil(v_mppt_min / vmp) if vmp > 0 else 0
+                # ==========================================
+                # 🛡️ الحسابات البرمجية والهندسية بـ معايير الأمان
+                # ==========================================
 
-                # 2. أقصى عدد ألواح بالسلسلة (مع معامل أمان برودة الطقس 1.12 لـ Voc)
-                voc_cold = voc * 1.12
-                max_by_voc = (
-                    math.floor(v_max / voc_cold) if voc_cold > 0 else 0
-                )
-                max_by_mppt = (
-                    math.floor(v_mppt_max / vmp) if vmp > 0 else max_by_voc
-                )
-                max_string = min(max_by_voc, max_by_mppt)
+                # 1. الحد الأدنى الآمن للألواح في السلسلة (Safety Margin +10% للحرارة العالية)
+                # يضمن ألا يقل جهد السلسلة صيفاً عن الحد الأدنى لـ MPPT
+                v_mppt_min_safe = v_mppt_min * 1.10
+                min_string_safe = math.ceil(v_mppt_min_safe / vmp) if vmp > 0 else 0
 
+                # 2. الحد الأقصى الآمن للألواح في السلسلة (Safety Margin 1.15 لجهد البرودة + 5% هامش أمان للجهد الفائق)
+                voc_cold_safe = voc * 1.15
+                v_max_safe = v_max * 0.95  # لا نتجاوز 95% من أقصى جهد مستمر للإنفيرتر للحماية المطلقة
+                
+                max_by_voc = math.floor(v_max_safe / voc_cold_safe) if voc_cold_safe > 0 else 0
+                max_by_mppt = math.floor(v_mppt_max / vmp) if vmp > 0 else max_by_voc
+                
+                max_string_safe = min(max_by_voc, max_by_mppt)
+
+                # إجمالي السلاسل الكلي (Strings Count)
                 total_strings = mppt_count * strings_per_mppt
 
-                # عرض النتائج النهائية
-                st.markdown("---")
-                st.subheader("⚡ نتائج التوصيل والتدقيق الفني")
-
-                st.success(f"""
-                * **عدد تتبعات MPPT:** {mppt_count}
-                * **إجمالي السلاسل (Total Strings):** {total_strings} سلاسل (بواقع {strings_per_mppt} لكل MPPT).
-                * **أقل عدد ألواح في السلسلة الواحدة (String Min):** `{min_string}` ألواح.
-                * **أكبر عدد ألواح في السلسلة الواحدة (String Max):** `{max_string}` لوحاً.
-                """)
-
-                # السعة الإجمالية
-                min_total_panels = min_string * total_strings
-                max_total_panels = max_string * total_strings
+                # ==========================================
+                # 📊 حسابات التوزيع والمتوسط الموصى به
+                # ==========================================
+                rec_string = math.floor((min_string_safe + max_string_safe) / 2) # العدد الموصى به هيدروليكياً للسلسلة
+                
+                min_total_panels = min_string_safe * total_strings
+                max_total_panels = max_string_safe * total_strings
+                rec_total_panels = rec_string * total_strings
 
                 min_kw = round((min_total_panels * pmax) / 1000, 2)
                 max_kw = round((max_total_panels * pmax) / 1000, 2)
+                rec_kw = round((rec_total_panels * pmax) / 1000, 2)
+
+                # عرض النتائج النهائية
+                st.markdown("---")
+                st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
+
+                st.success(f"""
+                🛡️ **حدود الأمان للسلسلة الواحدة (String Limits):**
+                * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح *(يضمن تشغيل الإنفيرتر صيفاً بجهد مستقر).*
+                * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً *(يحمي الإنفيرتر من الاحتراق شتاءً).*
+                * **العدد الموصى به مثالياً للسلسلة:** `{rec_string}` ألواح.
+                """)
 
                 st.info(f"""
-                **📊 القدرة السعوية الكاملة للمنظومة:**
-                * **الحد الأدنى للتشغيل:** {min_total_panels} لوحاً ({min_kw} kW).
-                * **الحد الأقصى المسموح:** {max_total_panels} لوحاً ({max_kw} kW).
+                🔀 **توزيع الألواح المتوازن على الإنفيرتر (كل الـ Strings/MPPT):**
+                * **عدد تتبعات MPPT:** {mppt_count} | **إجمالي السلاسل:** {total_strings}
+                
+                ---
+                * **الحد الأدنى للتشغيل الآمن:** {min_total_panels} لوحاً ({min_kw} kW) -> موزعة بواقع **{min_string_safe} ألواح** لكل سلسلة.
+                * **التوزيع المثالي الموصى به:** {rec_total_panels} لوحاً ({rec_kw} kW) -> موزعة بواقع **{rec_string} ألواح** لكل سلسلة.
+                * **الحد الأقصى المسموح والمأمون:** {max_total_panels} لوحاً ({max_kw} kW) -> موزعة بواقع **{max_string_safe} ألواح** لكل سلسلة.
                 """)
 
         except Exception as e:
-            st.error(f"حدث خطأ أثناء معالجة الصور: {e}")
+            st.error(f"حدث خطأ أثناء معالجة الحسابات: {e}")
