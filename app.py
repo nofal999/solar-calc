@@ -301,8 +301,8 @@ def clean_json_response(text: str) -> str:
 def process_extraction(contents: list, key: str) -> dict:
     genai.configure(api_key=key.strip())
     
-    # محاولة استخدام أحدث النماذج المتاحة تدريجياً لضمان عدم حدوث خطأ 404
-    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+    # استخدام النموذج المحدث والمطلوب gemini-3.6-flash مع إتاحة بدائل احتياطية
+    models_to_try = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
     
     system_instruction = """
     أنت مهندس طاقة شمسية خبير. استخرج المواصفات وأعد الإجابة بصيغة JSON حصراً وحسب الهيكل التالي بدون أي نصوص إضافية:
@@ -335,7 +335,7 @@ def process_extraction(contents: list, key: str) -> dict:
             last_exception = e
             continue
 
-    # محاولة نهائية عبر جلب أي نموذج متاح تلقائياً في حساب المستخدم
+    # محاولة نهائية عبر جلب النماذج المتاحة ديناميكياً من حساب الـ API
     try:
         available_models = [
             m.name for m in genai.list_models() 
