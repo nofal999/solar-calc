@@ -256,7 +256,7 @@ def analyze_battery_safety_and_compatibility(
     return results
 
 
-# 6. دالة الاستخراج الموحدة باستعمال gemini-2.0-flash
+# 6. دالة الاستخراج الموحدة باستعمال gemini-3.6-flash
 def process_extraction(contents: list, key: str) -> dict:
     client = genai.Client(api_key=key)
     
@@ -338,7 +338,7 @@ def process_extraction(contents: list, key: str) -> dict:
     }
 
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-3.6-flash",
         contents=contents,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -397,7 +397,7 @@ if st.button("⚡ تحليل سريع واستخراج التقرير والحس
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
                     b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
-                    with st.spinner("⚡ جاري قراءة الملصقات وتحليل الصور..."):
+                    with st.spinner("⚡ جاري قراءة الملصقات وتحليل الصور باستخدام gemini-3.6-flash..."):
                         res = extract_via_images(p_img, i_img, b_img, api_key)
                 except Exception as e:
                     st.error(f"حدث خطأ أثناء معالجة الصور: {e}")
