@@ -29,7 +29,7 @@ st.markdown(
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر")
 st.caption("حلل ملصقات البيانات واستخرج النتائج الكهربائية ومجالات التوصيل فوراً")
 
-# إدخال مفتاح API في الشريط الجانبي أو الواجهة الرئيسية
+# إدخال مفتاح API في الشريط الجانبي
 with st.sidebar:
     st.header("⚙️ الإعدادات")
     api_key = st.text_input(
@@ -81,7 +81,7 @@ def extract_data_via_gemini(panel_img, inverter_img, key):
     """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.6-flash",
         contents=[panel_img, inverter_img, prompt],
         config=types.GenerateContentConfig(
             response_mime_type="application/json"
