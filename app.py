@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("تحليل ذكي ومستقر للمواصفات الكهربائية لأي موديل جديد")
+st.caption("تحليل ذكي يعتمد على الكشف التلقائي للنماذج لتجنب أخطاء 404 نهائياً")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -142,6 +142,19 @@ def clean_json_response(text: str) -> str:
     return text.strip()
 
 
+def get_working_model(api_key: str):
+    """دالة بحث تلقائي ذكية تجلب أي نموذج متاح ويدعم التوليد في حسابك فوراً"""
+    genai.configure(api_key=api_key.strip())
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                return m.name
+    except Exception:
+        pass
+    # كاحتياطي أخير
+    return "gemini-1.5-flash"
+
+
 def process_extraction(contents: list, key: str) -> dict:
     genai.configure(api_key=key.strip())
     
@@ -162,11 +175,11 @@ def process_extraction(contents: list, key: str) -> dict:
 
     all_inputs = [system_instruction] + contents
     
-    # استخدام النموذج المستقر والمعتمد gemini-1.5-flash
-    model_name = "gemini-1.5-flash"
+    # جلب اسم النموذج الفعال ديناميكياً لتجنب أخطاء 404 المزعجة
+    target_model = get_working_model(key)
 
     try:
-        model = genai.GenerativeModel(model_name)
+        model = genai.GenerativeModel(target_model)
         response = model.generate_content(
             all_inputs,
             generation_config={"response_mime_type": "application/json", "temperature": 0.1}
@@ -174,7 +187,7 @@ def process_extraction(contents: list, key: str) -> dict:
         cleaned_json = clean_json_response(response.text)
         return json.loads(cleaned_json)
     except Exception as e:
-        raise Exception(f"تعذر استخراج البيانات: {str(e)}")
+        raise Exception(f"تعذر استخراج البيانات باستخدام النموذج ({target_model}): {str(e)}")
 
 
 # 5. زر التحليل الفوري
@@ -193,7 +206,7 @@ if st.button("⚡ تحليل فائق السرعة واستخراج التقري
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
                     b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
-                    with st.spinner("⚡ جاري معالجة البيانات وتحليل الموديلات الجديدة..."):
+                    with st.spinner("⚡ جاري البحث عن النموذج المتاح ومعالجة البيانات..."):
                         contents = [prepare_image(p_img), prepare_image(i_img)]
                         if b_img:
                             contents.append(prepare_image(b_img))
