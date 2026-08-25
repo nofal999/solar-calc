@@ -9,7 +9,7 @@ import streamlit as st
 
 # 1. ضبط إعدادات الصفحة
 st.set_page_config(
-    page_title="حاسبة توافق الألواح والإنفيرتر والبطاريات الشاملة",
+    page_title="حاسبة توافق الألواح والإنفيرتر والشلاسل",
     page_icon="☀️",
     layout="centered",
     initial_sidebar_state="collapsed",
@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("تحليل ذكي فائق السرعة للمواصفات الكهربائية")
+st.caption("تحليل ذكي يعتمد على جلب النماذج المتاحة ديناميكياً لمنع أخطاء الاتصال")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -162,24 +162,31 @@ def process_extraction(contents: list, key: str) -> dict:
 
     all_inputs = [system_instruction] + contents
     
-    # اختيار النموذج المدعوم بشكل مضمون ودون أخطاء 404
-    models_to_try = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro"]
-    last_exception = None
+    # الحل الجذري: فحص النماذج المتاحة فعلياً عبر حسابك واستخدامها مباشرة دون توقعات خاطئة
+    available_model_name = None
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                if 'flash' in m.name or 'pro' in m.name:
+                    available_model_name = m.name
+                    break
+    except Exception:
+        pass
 
-    for model_name in models_to_try:
-        try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(
-                all_inputs,
-                generation_config={"response_mime_type": "application/json", "temperature": 0.1}
-            )
-            cleaned_json = clean_json_response(response.text)
-            return json.loads(cleaned_json)
-        except Exception as e:
-            last_exception = e
-            continue
+    # إذا لم يجد، نلجأ للاسم الافتراضي العام
+    if not available_model_name:
+        available_model_name = "models/gemini-1.5-flash"
 
-    raise Exception(f"تعذر استخراج البيانات من API: {str(last_exception)}")
+    try:
+        model = genai.GenerativeModel(available_model_name)
+        response = model.generate_content(
+            all_inputs,
+            generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+        )
+        cleaned_json = clean_json_response(response.text)
+        return json.loads(cleaned_json)
+    except Exception as e:
+        raise Exception(f"تعذر استخراج البيانات باستخدام النموذج ({available_model_name}): {str(e)}")
 
 
 # 5. زر التحليل الفوري
@@ -198,7 +205,7 @@ if st.button("⚡ تحليل فائق السرعة واستخراج التقري
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
                     b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
-                    with st.spinner("⚡ جاري معالجة البيانات بسرعة فائقة..."):
+                    with st.spinner("⚡ جاري البحث عن النموذج المتاح ومعالجة البيانات..."):
                         contents = [prepare_image(p_img), prepare_image(i_img)]
                         if b_img:
                             contents.append(prepare_image(b_img))
