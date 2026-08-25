@@ -368,7 +368,8 @@ def process_extraction(contents: list, key: str) -> dict:
         },
     }
 
-    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-3.6-flash"]
+    # تم تصحيح أسماء النماذج الرسمية
+    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash"]
 
     for model_name in models_to_try:
         max_retries = 2
@@ -388,15 +389,17 @@ def process_extraction(contents: list, key: str) -> dict:
             except APIError as e:
                 if e.code == 429:
                     if attempt < max_retries - 1:
-                        time.sleep(15)
+                        time.sleep(5)
                         continue
                     else:
                         break
                 else:
-                    raise e
+                    break
+            except Exception:
+                break
 
     raise Exception(
-        "تم تجاوز الحصة المجانية لكافة النماذج المتاحة حالياً. يرجى الانتظار دقيقة واحدة ثم إعادة المحاولة، أو التأكد من إعدادات المفتاح."
+        "تعذر استخراج البيانات. يرجى التأكد من صحة مفتاح Gemini API Key أو محاولة رفع صور أكثر وضوحاً."
     )
 
 
