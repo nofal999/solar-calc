@@ -290,7 +290,7 @@ def analyze_battery_safety_and_compatibility(
     return results
 
 
-# 6. دالة الاستخراج الذكية مع المعالجة المباشرة للأخطاء
+# 6. دالة الاستخراج الذكية مع تجربة النماذج المتاحة تلقائياً
 def process_extraction(contents: list, key: str) -> dict:
     client = genai.Client(api_key=key.strip())
 
@@ -371,25 +371,32 @@ def process_extraction(contents: list, key: str) -> dict:
         },
     }
 
-    # استخدام الموديل المستقر والرسمي
-    model_name = "gemini-2.5-flash"
+    # قائمة بالنماذج المتاحة مرتبة حسب الأفضلية والأحدث
+    candidate_models = ["gemini-2.5-flash", "gemini-1.5-flash"]
+    
+    last_exception = None
 
-    try:
-        response = client.models.generate_content(
-            model=model_name,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=response_schema,
-                temperature=0.1,
-            ),
-        )
-        return json.loads(response.text)
+    for model_name in candidate_models:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=response_schema,
+                    temperature=0.1,
+                ),
+            )
+            return json.loads(response.text)
+        except APIError as e:
+            last_exception = e
+            # الانتقال للموديل التالي إذا كان الخطأ متعلقاً بالنموذج
+            continue
+        except Exception as e:
+            raise Exception(f"تعذر معالجة البيانات: {str(e)}")
 
-    except APIError as e:
-        raise Exception(f"خطأ في الاتصال بالخدمة ({e.code}): {e.message}")
-    except Exception as e:
-        raise Exception(f"تعذر معالجة الطلب: {str(e)}")
+    if last_exception:
+        raise Exception(f"خطأ من Google API: {last_exception.message}")
 
 
 def extract_via_images(panel_img, inverter_img, battery_img, key):
