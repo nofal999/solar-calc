@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("تحليل ذكي للمواصفات الكهربائية مع نظام بدائل النماذج التلقائي")
+st.caption("تحليل ذكي ومستقر للمواصفات الكهربائية لأي موديل جديد")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -162,39 +162,19 @@ def process_extraction(contents: list, key: str) -> dict:
 
     all_inputs = [system_instruction] + contents
     
-    # قائمة النماذج لتجربتها بالترتيب في حال استنفاد حصة أحدها (Fallback List)
-    candidate_models = [
-        "models/gemini-3.6-flash",
-        "models/gemini-2.5-flash",
-        "models/gemini-1.5-flash",
-        "models/gemini-1.5-flash-latest"
-    ]
-    
-    last_error_msg = ""
+    # استخدام النموذج المستقر والمعتمد gemini-1.5-flash
+    model_name = "gemini-1.5-flash"
 
-    for model_name in candidate_models:
-        try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(
-                all_inputs,
-                generation_config={"response_mime_type": "application/json", "temperature": 0.1}
-            )
-            cleaned_json = clean_json_response(response.text)
-            return json.loads(cleaned_json)
-        except Exception as e:
-            last_error_msg = str(e)
-            if "429" in last_error_msg or "Quota exceeded" in last_error_msg:
-                # إذا نفدت الحصة لهذا النموذج، جرب النموذج التالي في القائمة تلقائياً
-                continue
-            else:
-                # إذا كان خطأ آخر غير الحصة، اترك اللوب و اظهر الخطأ
-                break
-
-    # إذا نفدت حصة كل النماذج المتاحة
-    if "429" in last_error_msg or "Quota" in last_error_msg:
-        raise Exception("⚠️ لقد تجاوزت الحد الأقصى للطلبات المجانية (Quota Exceeded) في حساب Google AI Studio الخاص بك. يرجى الانتظار قليلاً أو استخدام مفتاح API آخر.")
-    else:
-        raise Exception(f"تعذر استخراج البيانات: {last_error_msg}")
+    try:
+        model = genai.GenerativeModel(model_name)
+        response = model.generate_content(
+            all_inputs,
+            generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+        )
+        cleaned_json = clean_json_response(response.text)
+        return json.loads(cleaned_json)
+    except Exception as e:
+        raise Exception(f"تعذر استخراج البيانات: {str(e)}")
 
 
 # 5. زر التحليل الفوري
@@ -213,7 +193,7 @@ if st.button("⚡ تحليل فائق السرعة واستخراج التقري
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
                     b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
-                    with st.spinner("⚡ جاري معالجة البيانات بسرعة فائقة عبر النماذج المتاحة..."):
+                    with st.spinner("⚡ جاري معالجة البيانات وتحليل الموديلات الجديدة..."):
                         contents = [prepare_image(p_img), prepare_image(i_img)]
                         if b_img:
                             contents.append(prepare_image(b_img))
