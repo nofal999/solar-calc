@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("تحليل ذكي فائق السرعة للمواصفات الكهربائية، مع إدراج عوامل الأمان")
+st.caption("تحليل ذكي فائق السرعة للمواصفات الكهربائية")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -63,7 +63,7 @@ with st.sidebar:
     )
     st.info("💡 المفتاح مطلوب لعمليات التحليل والاستخراج.")
 
-# 4. طريقت البحث
+# 4. طرق البحث
 search_mode = st.radio(
     "اختر طريقة إدخال البيانات للبحث والتحليل:",
     ["📸 1. البحث عن طريق الصور (إرفاق الملصقات)", "✍️ 2. البحث عن طريق اسم الشركة والموديل (نصياً)"],
@@ -162,8 +162,8 @@ def process_extraction(contents: list, key: str) -> dict:
 
     all_inputs = [system_instruction] + contents
     
-    # قائمة النماذج المعتمدة الحديثة لضمان العمل المباشر بدون أخطاء 404
-    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"]
+    # اختيار النموذج المدعوم بشكل مضمون ودون أخطاء 404
+    models_to_try = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro"]
     last_exception = None
 
     for model_name in models_to_try:
