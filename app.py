@@ -84,13 +84,7 @@ with st.sidebar:
         type="password",
         help="احصل عليه مجاناً من Google AI Studio",
     )
-    selected_model = st.selectbox(
-        "اختر الموديل:",
-        ["gemini-2.5-flash", "gemini-1.5-flash"],
-        index=0,
-        help="إذا واجهت خطأ حصة استخدام أو عدم العثور، يمكنك التبديل بينهم."
-    )
-    st.info("💡 يتم حفظ المفتاح والإعدادات هنا لتسهيل الاستخدام.")
+    st.info("💡 يتم حفظ المفتاح هنا لتسهيل الاستخدام.")
 
 # رفع صور ملصقات الألواح والإنفيرتر
 uploaded_panel = st.file_uploader(
@@ -125,7 +119,7 @@ def format_val(value, unit=""):
     return f"`{value} {unit}`".strip()
 
 
-def extract_data_via_gemini(panel_img, inverter_img, key, model_name="gemini-2.5-flash"):
+def extract_data_via_gemini(panel_img, inverter_img, key):
     client = genai.Client(api_key=key)
 
     prompt = """
@@ -182,25 +176,38 @@ def extract_data_via_gemini(panel_img, inverter_img, key, model_name="gemini-2.5
     2. إذا لم تكن القيمة أو الميزة موجودة أو واضحة في الملصق استخدم 0 للقيم الرقمية و "غير موجود على الملصق" للنصوص بدلاً من null.
     """
 
-    # التعامل مع خطأ 429 وإعادة المحاولة التلقائية
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=[panel_img, inverter_img, prompt],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json"
-                ),
-            )
-            return json.loads(response.text)
-        except Exception as e:
-            err_str = str(e)
-            if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str) and attempt < max_retries - 1:
-                time.sleep(10)  # الانتظار 10 ثوانٍ وإعادة المحاولة تلقائياً
-                continue
-            else:
-                raise e
+    # قائمة الموديلات المتاحة للتبديل التلقائي
+    candidate_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+    
+    last_exception = None
+
+    for model_name in candidate_models:
+        # محاولات متعددة لكل موديل عند تجاوز الضغط (Rate Limit Handling)
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[panel_img, inverter_img, prompt],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json"
+                    ),
+                )
+                return json.loads(response.text)
+            except Exception as e:
+                err_str = str(e)
+                last_exception = e
+                # التعامل مع خطأ الضغط والانتظار التلقائي
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    time.sleep(5 * (attempt + 1))
+                    continue
+                # التعامل مع خطأ عدم العثور على الموديل والانتقال للموديل التالي مباشرة
+                elif "404" in err_str or "NOT_FOUND" in err_str:
+                    break
+                else:
+                    raise e
+
+    if last_exception:
+        raise last_exception
 
 
 if st.button("🔍 تحليل واستخراج التقرير الشامل والحسابات"):
@@ -214,7 +221,7 @@ if st.button("🔍 تحليل واستخراج التقرير الشامل وا�
             i_img = Image.open(uploaded_inverter)
 
             with st.spinner("جاري قراءة كافة بيانات الملصقات وتطبيق الحسابات بـ معاملات الأمان..."):
-                res = extract_data_via_gemini(p_img, i_img, api_key, selected_model)
+                res = extract_data_via_gemini(p_img, i_img, api_key)
 
                 panel = res.get("panel", {})
                 inv = res.get("inverter", {})
@@ -460,8 +467,6 @@ if st.button("🔍 تحليل واستخراج التقرير الشامل وا�
         except Exception as e:
             err_msg = str(e)
             if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
-                st.error("⏳ **تم تجاوز عدد الطلبات المسموح به مجاناً في الدقيقة.** تم استخدام المحاولات المتاحة، يرجى الانتظار 30 ثانية ثم إعادة الضغط على الزر.")
-            elif "404" in err_msg or "NOT_FOUND" in err_msg:
-                st.error("⚠️ الموديل غير متوفر في حسابك الحالي، يرجى التبديل لـ `gemini-1.5-flash` من القائمة الجانبية.")
+                st.error("⏳ **تم تجاوز عدد الطلبات المجانية المسموح بها مؤقتاً.** تم إيقاف الطلبات مؤقتاً لمنع الحظر. يرجى الانتظار 30 ثانية ثم إعادة المحاولة.")
             else:
                 st.error(f"حدث خطأ أثناء معالجة الحسابات: {e}")
