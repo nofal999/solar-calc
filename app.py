@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("تحليل ذكي فائق السرعة للمواصفات الكهربائية، مع إدراج عوامل الأمان للبطاريات وسلاسل الألواح")
+st.caption("تحليل ذكي فائق السرعة للمواصفات الكهربائية، مع إدراج عوامل الأمان")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -131,34 +131,6 @@ def prepare_image(pil_img: Image.Image, max_dim: int = 1024) -> Image.Image:
     return img_copy
 
 
-def analyze_battery_safety_and_compatibility(
-    inv_voltage: float, inv_max_charge: float, inv_ac_power: float,
-    batt_voltage: float, batt_max_charge: float, batt_max_discharge: float,
-    batt_ah: float, batt_kwh: float,
-) -> Dict[str, Any]:
-    results = {
-        "voltage_match": False, "voltage_msg": "", "warnings": [], "recommendations": [],
-        "safe_charge_current": 0.0, "safe_discharge_current": 0.0,
-    }
-
-    if inv_voltage <= 0 or batt_voltage <= 0:
-        results["voltage_msg"] = "تعذر الجزم بتوافق الجهد لعدم توفر قراءة دقيقة."
-    elif abs(inv_voltage - batt_voltage) <= 5.0 or (40.0 <= inv_voltage <= 60.0 and 40.0 <= batt_voltage <= 60.0):
-        results["voltage_match"] = True
-        results["voltage_msg"] = f"جهد البطارية ({batt_voltage}V) متوافق تماماً مع نظام الإنفيرتر ({inv_voltage}V)."
-    else:
-        results["voltage_match"] = False
-        results["voltage_msg"] = f"غير متوافق! جهد البطارية ({batt_voltage}V) يختلف عن جهد الإنفيرتر المطلوب ({inv_voltage}V)."
-
-    SAFETY_FACTOR = 0.80
-    if batt_max_charge > 0:
-        results["safe_charge_current"] = round(batt_max_charge * SAFETY_FACTOR, 1)
-    if batt_max_discharge > 0:
-        results["safe_discharge_current"] = round(batt_max_discharge * SAFETY_FACTOR, 1)
-
-    return results
-
-
 def clean_json_response(text: str) -> str:
     text = text.strip()
     if text.startswith("```json"):
@@ -190,17 +162,24 @@ def process_extraction(contents: list, key: str) -> dict:
 
     all_inputs = [system_instruction] + contents
     
-    try:
-        # الاتصال المباشر والسريع بدون أي حلقات انتظار أو بحث مسبق
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(
-            all_inputs,
-            generation_config={"response_mime_type": "application/json", "temperature": 0.1}
-        )
-        cleaned_json = clean_json_response(response.text)
-        return json.loads(cleaned_json)
-    except Exception as e:
-        raise Exception(f"تعذر استخراج البيانات من API: {str(e)}")
+    # قائمة النماذج المعتمدة الحديثة لضمان العمل المباشر بدون أخطاء 404
+    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"]
+    last_exception = None
+
+    for model_name in models_to_try:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(
+                all_inputs,
+                generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+            )
+            cleaned_json = clean_json_response(response.text)
+            return json.loads(cleaned_json)
+        except Exception as e:
+            last_exception = e
+            continue
+
+    raise Exception(f"تعذر استخراج البيانات من API: {str(last_exception)}")
 
 
 # 5. زر التحليل الفوري
@@ -248,7 +227,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     res = st.session_state["analysis_result"]
     panel = res.get("panel", {})
     inv = res.get("inverter", {})
-    ext_batt = res.get("external_battery", {})
 
     p_brand = panel.get("brand", "غير معروف")
     p_model = panel.get("model", "غير معروف")
@@ -265,7 +243,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     v_mppt_max = safe_float(inv.get("v_mppt_max"))
     mppt_count = safe_int(inv.get("mppt_count"), default=1)
     strings_per_mppt = safe_int(inv.get("strings_per_mppt"), default=1)
-    max_mppt_current = safe_float(inv.get("max_mppt_current"))
 
     st.subheader("📌 البيانات التعريفية والموديلات المكتشفة")
     col_p_info, col_i_info = st.columns(2)
