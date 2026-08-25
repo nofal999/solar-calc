@@ -1,7 +1,9 @@
 import json
 import math
+import time
 from google import genai
 from google.genai import types
+from google.genai.errors import APIError
 from PIL import Image
 import streamlit as st
 
@@ -17,7 +19,6 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* تطبيق اتجاه النصوص العربية دون المساس بتخطيط Streamlit الأصلي */
     [data-testid="stMainBlockContainer"], 
     [data-testid="stSidebarContent"] {
         direction: rtl;
@@ -25,7 +26,6 @@ st.markdown(
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
     
-    /* محاذاة العناوين والنصوص من اليمين */
     div[data-testid="stMarkdownContainer"] p,
     div[data-testid="stMarkdownContainer"] h1,
     div[data-testid="stMarkdownContainer"] h2,
@@ -36,13 +36,11 @@ st.markdown(
         direction: rtl !important;
     }
 
-    /* إصلاح القوائم النقطية */
     ul, ol {
         padding-right: 1.5rem !important;
         padding-left: 0rem !important;
     }
 
-    /* إصلاح اتجاه علامات التبويب Tabs */
     button[data-baseweb="tab"] {
         direction: rtl !important;
     }
@@ -51,13 +49,11 @@ st.markdown(
         justify-content: flex-end !important;
     }
 
-    /* إصلاح مربع رفع الملفات للشاشات الصغيرة */
     section[data-testid="stFileUploadDropzone"] {
         direction: rtl;
         text-align: right;
     }
 
-    /* تحسين زر التحليل */
     .stButton>button {
         width: 100%;
         background-color: #0284c7;
@@ -68,7 +64,6 @@ st.markdown(
         margin-top: 10px;
     }
 
-    /* تحسين محاذاة أشرطة التنبيه والمعلومات */
     .stAlert {
         direction: rtl;
         text-align: right;
@@ -101,7 +96,6 @@ uploaded_inverter = st.file_uploader(
 
 
 def safe_float(value, default=0.0):
-    """دالة أمان لتحويل القيم إلى float دون التسبب في خطأ NoneType"""
     if value is None:
         return default
     try:
@@ -111,7 +105,6 @@ def safe_float(value, default=0.0):
 
 
 def safe_int(value, default=1):
-    """دالة أمان لتحويل القيم إلى int دون التسبب في خطأ NoneType"""
     if value is None:
         return default
     try:
@@ -121,7 +114,6 @@ def safe_int(value, default=1):
 
 
 def format_val(value, unit=""):
-    """دالة تنسيق تعيد 'غير موجود على الملصق' إذا كانت القيمة مفقودة أو صفر"""
     if value is None or value == "" or value == 0 or value == 0.0 or value == "غير محدد":
         return "`غير موجود على الملصق`"
     return f"`{value} {unit}`".strip()
@@ -184,8 +176,9 @@ def extract_data_via_gemini(panel_img, inverter_img, key):
     2. إذا لم تكن القيمة أو الميزة موجودة أو واضحة في الملصق استخدم 0 للقيم الرقمية و "غير موجود على الملصق" للنصوص بدلاً من null.
     """
 
+    # تم التحديث هنا إلى الموديل المستقر والرسمي
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-2.5-flash",
         contents=[panel_img, inverter_img, prompt],
         config=types.GenerateContentConfig(
             response_mime_type="application/json"
@@ -316,19 +309,12 @@ if st.button("🔍 تحليل واستخراج التقرير الشامل وا�
                     st.write(f"- **قدرة البدء اللحظية:** {format_val(s_power, 'VA')}")
                     st.write(f"- **مدة التحمل اللحظية:** {format_val(s_duration, 'ثانية')}")
 
-                # التحقق من وجود القيم الأساسية قبل إجراء الحسابات
                 if voc == 0 or vmp == 0 or v_max == 0:
                     st.error("⚠️ لم يتم تعيين كافة القيم الكهربائية الأساسية للجهد من الصور (مثل Voc, Vmp, DC Max). يرجى التأكد من وضوح الملصقات المحملة.")
                 else:
-                    # ==========================================
-                    # 🛡️ الحسابات الشاملة المستخرجة مباشرة من الصورة
-                    # ==========================================
-
-                    # 1. الحد الأدنى الآمن للألواح في السلسلة (+10% للحرارة)
                     v_mppt_min_safe = v_mppt_min * 1.10
                     min_string_safe = math.ceil(v_mppt_min_safe / vmp) if vmp > 0 else 1
 
-                    # 2. الحد الأقصى الآمن للألواح في السلسلة (1.15 للبرودة + 5% هامش أمان)
                     voc_cold_safe = voc * 1.15
                     v_max_safe = v_max * 0.95
                     
@@ -336,28 +322,22 @@ if st.button("🔍 تحليل واستخراج التقرير الشامل وا�
                     max_by_mppt = math.floor(v_mppt_max / vmp) if vmp > 0 and v_mppt_max > 0 else max_by_voc
                     max_string_safe = min(max_by_voc, max_by_mppt) if max_by_mppt > 0 else max_by_voc
 
-                    # ضمان عدم وجود خطأ سياقي إذا كانت القيم المقروءة صغيرة
                     if max_string_safe < min_string_safe:
                         max_string_safe = min_string_safe
 
-                    # العدد الموصى به بالسلسلة الواحدة
                     rec_string = math.floor((min_string_safe + max_string_safe) / 2)
                     total_strings = mppt_count * strings_per_mppt
 
-                    # حساب إجمالي عدد الألواح للخيارات الأساسية
                     min_total_panels = min_string_safe * total_strings
                     rec_total_panels = rec_string * total_strings
                     max_total_panels = max_string_safe * total_strings
 
-                    # قدرة المنظومات بالكيلوواط
                     min_kw = round((min_total_panels * pmax) / 1000, 2)
                     rec_kw = round((rec_total_panels * pmax) / 1000, 2)
                     max_kw = round((max_total_panels * pmax) / 1000, 2)
 
-                    # 3. فحص التيار
                     isc_safe = isc * 1.25
 
-                    # عرض النتائج المحسوبة من البيانات المستخرجة
                     st.markdown("---")
                     st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
 
@@ -410,45 +390,36 @@ if st.button("🔍 تحليل واستخراج التقرير الشامل وا�
                         * **لكل String:** ضع `{max_string_safe}` لوحاً على التوالي.
                         """)
 
-                    # =========================================================
-                    # 🧮 قسم فحص وتحليل "عدد الألواح المخصص" من بيانات الصور
-                    # =========================================================
+                    # قسم فحص العدد المخصص
                     st.markdown("---")
                     st.subheader("🧮 فحص وتوزيع عدد ألواح مخصص (إدخال يدوي)")
                     st.write(f"الحدود الكهربائية المسموحة لهذا النظام هي ما بين **{min_total_panels}** إلى **{max_total_panels}** لوحاً كإجمالي للمنظومة:")
 
-                    # إدخال العدد فقط بناءً على المسموح من بيانات الصور
                     custom_panels_count = st.number_input(
                         "أدخل إجمالي عدد الألواح التي ترغب بتركيبها:",
                         min_value=1,
-                        max_value=max_total_panels * 2,  # للسماح باختبار التجاوز التنبيهي
+                        max_value=max_total_panels * 2,
                         value=int(rec_total_panels) if rec_total_panels > 0 else int(min_total_panels),
                         step=1,
                     )
 
                     if custom_panels_count > 0:
-                        # 1. حساب القدرة الإجمالية من الـ pmax المستخرج من صورة اللوح
                         custom_kw = round((custom_panels_count * pmax) / 1000, 2)
-                        
-                        # 2. حساب الجهد والقدرة التجميعية
                         st.markdown(f"#### 📊 النتائج للعدد المدخل ({custom_panels_count} لوحاً):")
                         st.write(f"- **إجمالي قدرة التوليد (Power):** `{custom_kw} kW` (محسوبة من بقدرة اللوح `{pmax}W` من الصورة)")
 
-                        # 3. آلية توزيع الألواح المدخلة على السلاسل والمداخل من الصورة
                         num_strings_used = min(total_strings, custom_panels_count)
                         panels_per_str = custom_panels_count // num_strings_used
                         remainder = custom_panels_count % num_strings_used
 
-                        # حسابات الجهد المتوقع للسلسلة
                         vmp_string = round(panels_per_str * vmp, 1)
                         voc_string_cold = round(panels_per_str * voc * 1.15, 1)
 
-                        # 4. تقييم مدى توافق العدد المدخل مع حدود الصور المستخرجة
                         if panels_per_str < min_string_safe:
                             st.error(
                                 f"❌ **العدد المدخل غير آمن (أقل من الحد الأدنى):**\n\n"
                                 f"عند توزيع `{custom_panels_count}` لوحاً على السلاسل، سيكون هناك `{panels_per_str}` ألواح بالسلسلة الواحدة بجهد تشغيلي قدره `{vmp_string}V`.\n\n"
-                                f"وهذا أقل من الحد الأدنى للتشغيل الآمن المكتشف من ملصق الإنفيرتر وهو `{min_string_safe}` ألواح (جهد MPPT الأدنى معدلاً = `{round(v_mppt_min_safe,1)}V`). لن يعمل الإنفيرتر كفاءة."
+                                f"وهذا أقل من الحد الأدنى للتشغيل الآمن المكتشف من ملصق الإنفيرتر وهو `{min_string_safe}` ألواح (جهد MPPT الأدنى معدلاً = `{round(v_mppt_min_safe,1)}V`). لن يعمل الإنفيرتر بكفاءة."
                             )
                         elif panels_per_str > max_string_safe:
                             st.error(
@@ -462,7 +433,6 @@ if st.button("🔍 تحليل واستخراج التقرير الشامل وا�
                                 f"جهد السلسلة التشغيلي سيكون حوالي `{vmp_string}V` وفي أقصى برودة سيعطي `{voc_string_cold}V`، وكلها تقع ضمن نطاق أمان الإنفيرتر المكتشف من الصورتين."
                             )
 
-                            # تفاصيل التوصيل الميداني للعدد المخصص
                             st.info(f"""
                             🔌 **خطة التوصيل الميدانية للعدد المدخل ({custom_panels_count} لوحاً):**
                             * **عدد السلاسل (Strings) المستخدمة:** `{num_strings_used}` من أصل `{total_strings}` المتاحة في الإنفيرتر.
@@ -472,4 +442,9 @@ if st.button("🔍 تحليل واستخراج التقرير الشامل وا�
                             """ + (f"\n⚠️ **ملاحظة:** يتبقى `{remainder}` ألواح غير موزعة. لضمان اتزان الجهد بين السلاسل، يفضل أن يكون إجمالي عدد الألواح يقبل القسمة بالتساوي على عدد السلاسل المستخدمة." if remainder > 0 else ""))
 
         except Exception as e:
-            st.error(f"حدث خطأ أثناء معالجة الحسابات: {e}")
+            err_msg = str(e)
+            if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                st.error("⏳ **تم تجاوز عدد الطلبات المجانية المسموح بها مؤقتاً (Rate Limit / Quota Exceeded).**")
+                st.info("💡 **الحل:** انتظر حوالي 30 إلى 45 ثانية ثم اضغط على زر التحليل مجدداً، أو قم بإنشاء مفتاح API جديد من Google AI Studio.")
+            else:
+                st.error(f"حدث خطأ أثناء معالجة الحسابات: {e}")
