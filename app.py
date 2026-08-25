@@ -13,18 +13,19 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# تخصيص واجهة المستخدم لدعم اللغة العربية بالكامل من اليمين إلى اليسار (RTL)
+# تخصيص واجهة المستخدم لدعم اللغة العربية وتجاوب الهاتف (Responsive RTL)
 st.markdown(
     """
     <style>
-    /* الاتجاه العام للصفحة والنصوص */
-    html, body, [data-testid="stAppViewContainer"], .main {
+    /* تطبيق اتجاه النصوص العربية دون المساس بتخطيط Streamlit الأصلي */
+    [data-testid="stMainBlockContainer"], 
+    [data-testid="stSidebarContent"] {
         direction: rtl;
         text-align: right;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
     
-    /* ضبط محاذاة كافة نصوص Markdown والأشرطة الجانبية */
+    /* محاذاة العناوين والنصوص من اليمين */
     div[data-testid="stMarkdownContainer"] p,
     div[data-testid="stMarkdownContainer"] h1,
     div[data-testid="stMarkdownContainer"] h2,
@@ -35,13 +36,13 @@ st.markdown(
         direction: rtl !important;
     }
 
-    /* ضبط اتجاه القوائم النقطية */
+    /* إصلاح القوائم النقطية */
     ul, ol {
         padding-right: 1.5rem !important;
         padding-left: 0rem !important;
     }
 
-    /* ضبط اتجاه علامات التبويب Tabs */
+    /* إصلاح اتجاه علامات التبويب Tabs */
     button[data-baseweb="tab"] {
         direction: rtl !important;
     }
@@ -50,13 +51,13 @@ st.markdown(
         justify-content: flex-end !important;
     }
 
-    /* ضبط صندوق رفع الملفات */
+    /* إصلاح مربع رفع الملفات للشاشات الصغيرة */
     section[data-testid="stFileUploadDropzone"] {
         direction: rtl;
         text-align: right;
     }
 
-    /* تنسيق الأزرار */
+    /* تحسين زر التحليل */
     .stButton>button {
         width: 100%;
         background-color: #0284c7;
@@ -64,6 +65,13 @@ st.markdown(
         border-radius: 8px;
         height: 3em;
         font-weight: bold;
+        margin-top: 10px;
+    }
+
+    /* تحسين محاذاة أشرطة التنبيه والمعلومات */
+    .stAlert {
+        direction: rtl;
+        text-align: right;
     }
     </style>
 """,
@@ -83,15 +91,13 @@ with st.sidebar:
     )
     st.info("💡 يتم حفظ المفتاح هنا لتسهيل الاستخدام اليومي.")
 
-col_panel, col_inv = st.columns(2)
-with col_panel:
-    uploaded_panel = st.file_uploader(
-        "📸 صورة ملصق اللوح الشمسي", type=["jpg", "jpeg", "png"]
-    )
-with col_inv:
-    uploaded_inverter = st.file_uploader(
-        "📸 صورة ملصق الإنفيرتر", type=["jpg", "jpeg", "png"]
-    )
+# اختيار وضع عرض الحقول متجاوباً مع شاشة الهاتف
+uploaded_panel = st.file_uploader(
+    "📸 صورة ملصق اللوح الشمسي", type=["jpg", "jpeg", "png"]
+)
+uploaded_inverter = st.file_uploader(
+    "📸 صورة ملصق الإنفيرتر", type=["jpg", "jpeg", "png"]
+)
 
 
 def extract_data_via_gemini(panel_img, inverter_img, key):
@@ -187,11 +193,11 @@ if st.button("🔍 تحليل واستخرج الحسابات الأمنيّة")
                 # 🛡️ الحسابات الشاملة بـ معاملات الأمان
                 # ==========================================
 
-                # 1. الحد الأدنى الآمن للألواح في السلسلة (Safety Margin +10% للحرارة العالية في الصيف)
+                # 1. الحد الأدنى الآمن للألواح في السلسلة (+10% للحرارة)
                 v_mppt_min_safe = v_mppt_min * 1.10
                 min_string_safe = math.ceil(v_mppt_min_safe / vmp) if vmp > 0 else 0
 
-                # 2. الحد الأقصى الآمن للألواح في السلسلة (Safety Margin 1.15 للبرودة في الشتاء + 5% هامش أمان للجهد)
+                # 2. الحد الأقصى الآمن للألواح في السلسلة (1.15 للبرودة + 5% هامش أمان)
                 voc_cold_safe = voc * 1.15
                 v_max_safe = v_max * 0.95
                 
@@ -199,13 +205,11 @@ if st.button("🔍 تحليل واستخرج الحسابات الأمنيّة")
                 max_by_mppt = math.floor(v_mppt_max / vmp) if vmp > 0 else max_by_voc
                 max_string_safe = min(max_by_voc, max_by_mppt)
 
-                # العدد الموصى به للسلسلة الواحدة
+                # العدد الموصى به
                 rec_string = math.floor((min_string_safe + max_string_safe) / 2)
-
-                # إجمالي السلاسل
                 total_strings = mppt_count * strings_per_mppt
 
-                # حسابات الإجمالي لكل MPPT ولكل خيار
+                # حسابات الإجمالي
                 panels_per_mppt_min = min_string_safe * strings_per_mppt
                 panels_per_mppt_rec = rec_string * strings_per_mppt
                 panels_per_mppt_max = max_string_safe * strings_per_mppt
@@ -218,14 +222,13 @@ if st.button("🔍 تحليل واستخرج الحسابات الأمنيّة")
                 rec_kw = round((rec_total_panels * pmax) / 1000, 2)
                 max_kw = round((max_total_panels * pmax) / 1000, 2)
 
-                # 3. فحص ومطابقة التيار (Current Check)
-                isc_safe = isc * 1.25  # تيار القصر المعدل مع معامل أمان الإشعاع الشديد
+                # 3. فحص التيار
+                isc_safe = isc * 1.25
 
-                # عرض النتائج النهائية
+                # عرض النتائج
                 st.markdown("---")
                 st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
 
-                # عرض تحذير التيار إذا كان يتجاوز قدرة الإنفيرتر
                 if max_mppt_current > 0 and isc_safe > max_mppt_current:
                     st.warning(f"⚠️ **تنبيه مطابقة التيار:** تيار القصر المعدل للوح ({round(isc_safe, 2)} A) أكبر من أقصى تيار يتحمله مدخل MPPT في الإنفيرتر ({max_mppt_current} A). سيعمل النظام ولكن قد يحدث قص للتيار (Clipping) عند الذروة.")
                 elif max_mppt_current > 0:
@@ -233,14 +236,14 @@ if st.button("🔍 تحليل واستخرج الحسابات الأمنيّة")
 
                 st.success(f"""
                 🛡️ **حدود الأمان للسلسلة الواحدة (String Limits):**
-                * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح (لحماية النظام من الانخفاض عند ارتفاع الحرارة).
-                * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً (لحماية الإنفيرتر من ارتفاع الجهد في البرودة).
+                * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح.
+                * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً.
                 * **العدد الموصى به مثالياً بالسلسلة:** `{rec_string}` ألواح.
                 """)
 
                 st.markdown("### 🔀 تفاصيل توزيع الألواح على MPPT و String")
 
-                tab1, tab2, tab3 = st.tabs(["⭐ التوزيع المثالي (الموصى به)", "🔴 الحد الأدنى (الحد الأدنى للتشغيل)", "🟢 الحد الأقصى (السعة القصوى)"])
+                tab1, tab2, tab3 = st.tabs(["⭐ التوزيع المثالي", "🔴 الحد الأدنى", "🟢 الحد الأقصى"])
 
                 with tab1:
                     st.info(f"""
