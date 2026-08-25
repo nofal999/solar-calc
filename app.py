@@ -226,7 +226,6 @@ def analyze_battery_safety_and_compatibility(inv_voltage, inv_max_charge, inv_ac
 
     # 4. فحص قدرة التفريغ المستمر مقابل قدرة الحمل الأقصى للإنفيرتر (Continuous Discharge vs Inverter Power)
     if inv_ac_power > 0 and batt_voltage > 0 and batt_max_discharge > 0:
-        # حساب أقصى تيار يسحبه الإنفيرتر عند كفاءة 90%
         max_inverter_dc_current = round(inv_ac_power / (batt_voltage * 0.90), 1)
         
         if max_inverter_dc_current > results["safe_discharge_current"]:
@@ -240,7 +239,7 @@ def analyze_battery_safety_and_compatibility(inv_voltage, inv_max_charge, inv_ac
 
     # 5. فحص سعة البطارية الموصى بها (C-Rate Optimization)
     if batt_ah > 0 and inv_ac_power > 0 and batt_voltage > 0:
-        recommended_min_ah = round((inv_ac_power / batt_voltage) * 1.5, 0) # توصية بتفريغ لا يتجاوز 0.67C
+        recommended_min_ah = round((inv_ac_power / batt_voltage) * 1.5, 0)
         if batt_ah < (inv_ac_power / batt_voltage):
             results["warnings"].append(
                 f"سعة البطارية ({batt_ah}Ah) تعتبر صغيرة نسبياً على إنفيرتر بقدرة {inv_ac_power}W. يُفضل ألا تقل السعة الكلية عن `{recommended_min_ah}Ah` لمطابقة أحمال الذروة ولتوفير ساعات تشغيل معقولة."
@@ -709,15 +708,16 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         # فحص عدد مخصص من الألواح
         st.markdown("---")
         st.subheader("🧮 فحص وتوزيع عدد ألواح مخصص")
+
+        # معالجة وحل خطأ StreamlitValueBelowMinError لضمان أن القيمة الابتدائية والقيمة القصوى لا تقل عن 1
+        initial_custom_value = max(1, int(rec_total_panels if rec_total_panels > 0 else min_total_panels))
+        max_custom_value = max(1, int(max_total_panels * 2))
+
         custom_panels_count = st.number_input(
             "أدخل إجمالي عدد الألواح التي ترغب بتركيبها:",
             min_value=1,
-            max_value=max_total_panels * 2,
-            value=(
-                int(rec_total_panels)
-                if rec_total_panels > 0
-                else int(min_total_panels)
-            ),
+            max_value=max_custom_value,
+            value=initial_custom_value,
             step=1,
             key="custom_panels_input",
         )
