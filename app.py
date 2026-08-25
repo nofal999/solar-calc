@@ -79,7 +79,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر الشاملة")
-st.caption("تحليل ذكي متكامل للمواصفات الكهربائية، البطاريات، فزة البدء، والتوصيل الميداني")
+st.caption("تحليل ذكي متكامل للمواصفات الكهربائية، نوع الجهد، عدد الفازات، البطاريات، فزة البدء، والتوصيل الميداني")
 
 # الشريط الجانبي
 with st.sidebar:
@@ -151,6 +151,8 @@ def extract_data_via_gemini(panel_img, inverter_img, key):
         "model": "اسم وموديل الإنفيرتر",
         "part_number": "الرقم التسلسلي أو رقم الموديل الدقيق للإنفيرتر",
         "type": "نوع الإنفيرتر (On-Grid, Off-Grid, Hybrid)",
+        "phase_type": "عدد الفازات (Single-Phase أو Three-Phase 3-Phase)",
+        "voltage_architecture": "نوع الجهد المستمر (High Voltage HV أو Low Voltage LV)",
         "ac_rated_power_w": 0.0,
         "v_max": 0.0,
         "v_mppt_min": 0.0,
@@ -162,11 +164,11 @@ def extract_data_via_gemini(panel_img, inverter_img, key):
         "battery": {
           "supported": true,
           "nominal_voltage_v": 0.0,
-          "battery_type": "أنواع البطاريات المدعومة (Lithium, Lead-Acid, etc.)",
+          "battery_type": "أنواع البطاريات المدعومة (Lithium, Lead-Acid, High Voltage Battery, etc.)",
           "max_charge_current_a": 0.0
         },
         "ac_input_output": {
-          "nominal_ac_voltage_v": "جهد AC الاسمي (مثال: 230V / 400V)",
+          "nominal_ac_voltage_v": "جهد AC الاسمي (مثال: 230V, 380V/400V)",
           "frequency_hz": "التردد (50Hz / 60Hz)",
           "max_ac_input_current_a": 0.0,
           "max_ac_output_current_a": 0.0
@@ -225,6 +227,8 @@ if st.button("🔍 تحليل واستخراج التقرير الشامل وا�
                 i_model = inv.get("model", "غير موجود على الملصق")
                 i_part = inv.get("part_number", "غير موجود على الملصق")
                 i_type = inv.get("type", "غير موجود على الملصق")
+                phase_type = inv.get("phase_type", "غير موجود على الملصق")
+                v_arch = inv.get("voltage_architecture", "غير موجود على الملصق")
                 ac_rated_power = safe_float(inv.get("ac_rated_power_w"))
 
                 v_max = safe_float(inv.get("v_max"))
@@ -261,6 +265,8 @@ if st.button("🔍 تحليل واستخراج التقرير الشامل وا�
                     st.write(f"**الموديل / الاسم:** {format_val(i_model)}")
                     st.write(f"**الرقم التسلسلي / Model No:** {format_val(i_part)}")
                     st.write(f"**نوع الإنفيرتر:** {format_val(i_type)}")
+                    st.write(f"**نظام الفازات (Phase):** {format_val(phase_type)}")
+                    st.write(f"**معمارية الجهد (DC Voltage System):** {format_val(v_arch)}")
                     st.write(f"- القدرة المستمرة الاسمية: {format_val(ac_rated_power, 'W')}")
                     st.write(f"- أقصى جهد مستمر (DC Max): {format_val(v_max, 'V')}")
                     st.write(f"- أدنى جهد MPPT: {format_val(v_mppt_min, 'V')}")
@@ -284,6 +290,7 @@ if st.button("🔍 تحليل واستخراج التقرير الشامل وا�
                     if not batt_supported and batt_volts == 0:
                         st.write("❌ **دعم البطاريات:** `لا يدعم بطاريات (On-Grid / Direct Solar)`")
                     else:
+                        st.write(f"- **يدعم بطاريات:** `نعم`")
                         st.write(f"- **جهد البطارية الاسمي:** {format_val(batt_volts, 'V')}")
                         st.write(f"- **أنواع البطاريات المدعومة:** {format_val(batt_type)}")
                         st.write(f"- **أقصى تيار شحن:** {format_val(batt_charge, 'A')}")
@@ -295,6 +302,7 @@ if st.button("🔍 تحليل واستخراج التقرير الشامل وا�
                     ac_in_curr = safe_float(ac_info.get("max_ac_input_current_a"))
                     ac_out_curr = safe_float(ac_info.get("max_ac_output_current_a"))
 
+                    st.write(f"- **نوع الفاز:** {format_val(phase_type)}")
                     st.write(f"- **جهد AC الاسمي:** {format_val(ac_v)}")
                     st.write(f"- **التردد:** {format_val(ac_freq)}")
                     st.write(f"- **أقصى تيار مدخل AC:** {format_val(ac_in_curr, 'A')}")
