@@ -8,7 +8,7 @@ import streamlit as st
 
 # 1. ضبط إعدادات الصفحة
 st.set_page_config(
-    page_title="حاسبة توافق الألواح والإنفيرتر الشاملة",
+    page_title="حاسبة توافق الألواح والإنفيرتر والبطاريات الشاملة",
     page_icon="☀️",
     layout="centered",
     initial_sidebar_state="collapsed",
@@ -67,10 +67,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("☀️ حاسبة توافق الألواح والإنفيرتر الشاملة")
+st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
 st.caption(
     "تحليل ذكي متكامل للمواصفات الكهربائية، نوع الجهد، نظام الفازات،"
-    " البطاريات، وتوزيع السلاسل الميدانية آلياً"
+    " البطاريات الخارجية، وتوزيع السلاسل الميدانية آلياً"
 )
 
 # 3. الشريط الجانبي
@@ -90,33 +90,49 @@ search_mode = st.radio(
     index=0,
 )
 
+# تفعيل أو إيقاف تحليل البطارية الخارجية
+enable_battery = st.toggle("🔋 تفعيل فحص وتحليل بطارية خارجية مخصصة", value=False)
+
 uploaded_panel = None
 uploaded_inverter = None
+uploaded_battery = None
 panel_text_query = ""
 inverter_text_query = ""
+battery_text_query = ""
 
 if "📸" in search_mode:
-    col_img1, col_img2 = st.columns(2)
-    with col_img1:
+    cols = st.columns(3 if enable_battery else 2)
+    with cols[0]:
         uploaded_panel = st.file_uploader(
             "📸 صورة ملصق اللوح الشمسي", type=["jpg", "jpeg", "png"]
         )
-    with col_img2:
+    with cols[1]:
         uploaded_inverter = st.file_uploader(
             "📸 صورة ملصق الإنفيرتر", type=["jpg", "jpeg", "png"]
         )
+    if enable_battery:
+        with cols[2]:
+            uploaded_battery = st.file_uploader(
+                "📸 صورة ملصق البطارية", type=["jpg", "jpeg", "png"]
+            )
 else:
-    col_txt1, col_txt2 = st.columns(2)
-    with col_txt1:
+    cols = st.columns(3 if enable_battery else 2)
+    with cols[0]:
         panel_text_query = st.text_input(
             "☀️ اسم الشركة والموديل للوح الشمسي:",
             placeholder="مثال: Jinko Solar JKMM550M-72HL4-V",
         )
-    with col_txt2:
+    with cols[1]:
         inverter_text_query = st.text_input(
             "⚡ اسم الشركة والموديل للإنفيرتر:",
             placeholder="مثال: Deye SUN-8K-SG04LP3-EU أو Growatt 5000ES",
         )
+    if enable_battery:
+        with cols[2]:
+            battery_text_query = st.text_input(
+                "🔋 اسم الشركة والموديل للبطارية:",
+                placeholder="مثال: Felicity solar LPBF48300 أو Pylontech US3000C",
+            )
 
 
 # 5. دوال مساعدة
@@ -145,6 +161,7 @@ def format_val(value, unit=""):
         or value == 0
         or value == 0.0
         or value == "غير محدد"
+        or value == "غير معروف"
     ):
         return "`غير موجود في البيانات`"
     return f"`{value} {unit}`".strip()
@@ -201,29 +218,51 @@ JSON_STRUCTURE = """
       "surge_power_va": 0.0,
       "duration_seconds": 0.0
     }
+  },
+  "external_battery": {
+    "brand": "الشركة المصنعة للبطارية الخارجية",
+    "model": "اسم وموديل البطارية الخارجية",
+    "chemistry": "نوع الكيمياء (LiFePO4, Gel, Lead-Acid, etc.)",
+    "capacity_ah": 0.0,
+    "capacity_kwh": 0.0,
+    "nominal_voltage_v": 0.0,
+    "max_charge_current_a": 0.0,
+    "max_discharge_current_a": 0.0
   }
 }
 """
 
 
 # 6. دالة الاستخراج عن طريق الصور
-def extract_via_images(panel_img, inverter_img, key):
+def extract_via_images(panel_img, inverter_img, battery_img, key):
     client = genai.Client(api_key=key)
+    contents = []
+    
     p_img_small = compress_image_for_speed(panel_img)
+    contents.append(p_img_small)
+    
     i_img_small = compress_image_for_speed(inverter_img)
+    contents.append(i_img_small)
+    
+    if battery_img:
+        b_img_small = compress_image_for_speed(battery_img)
+        contents.append(b_img_small)
 
     prompt = f"""
-    أنت مهندس طاقة شمسية خبير. قم بتحليل الصورتين المرفقتين واستخرج البيانات التالية بأسلوب JSON فقط دون أي مقدمات:
+    أنت مهندس طاقة شمسية خبير. قم بتحليل الصور المرفقة (لوح شمسي، إنفيرتر، وبطارية إن وجدت) واستخرج البيانات التالية بأسلوب JSON فقط دون أي مقدمات:
     {JSON_STRUCTURE}
-    ملاحظة: أعد أرقاماً فقط للقيم الرقمية دون وحدات، واستخدم 0 للقيم المفقودة.
+    ملاحظة: 
+    - أعد أرقاماً فقط للقيم الرقمية دون وحدات، واستخدم 0 للقيم المفقودة.
+    - إذا لم تكن صورة البطارية مرفقة، اجعل قيم external_battery تساوي 0 أو "غير معروف".
     """
+    contents.append(prompt)
 
     fast_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-3.5-flash"]
     for model_name in fast_models:
         try:
             response = client.models.generate_content(
                 model=model_name,
-                contents=[p_img_small, i_img_small, prompt],
+                contents=contents,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     temperature=0.1,
@@ -236,20 +275,24 @@ def extract_via_images(panel_img, inverter_img, key):
 
 
 # 7. دالة الاستخراج عن طريق اسم الموديل (نصياً)
-def extract_via_text(p_text, i_text, key):
+def extract_via_text(p_text, i_text, b_text, key):
     client = genai.Client(api_key=key)
 
+    b_prompt = f'والبطارية الخارجية المطلوبة: "{b_text}"' if b_text else 'لا يوجد بطارية خارجية مخصصة.'
+
     prompt = f"""
-    أنت خبير ومدرك لقواعد بيانات كتالوجات الألواح الشمسية والإنفيرترات (Datasheets).
+    أنت خبير ومدرك لقواعد بيانات كتالوجات الألواح الشمسية والإنفيرترات والبطاريات (Datasheets).
     اللوح الشمسي المطلوب: "{p_text}"
     الإنفيرتر المطلوب: "{i_text}"
+    {b_prompt}
 
-    استخرج المواصفات الكهربائية القياسية القياسية لهذه الموديلين المحددين وعد بتقرير بأسلوب JSON بنفس الهيكل تماماً بدون أي مقدمات:
+    استخرج المواصفات الكهربائية القياسية لهذه الموديلات المحددة وعد بتقرير بأسلوب JSON بنفس الهيكل تماماً بدون أي مقدمات:
     {JSON_STRUCTURE}
 
     تنبيه هام:
     - أعد أرقاماً فقط للقيم الرقمية (Numbers).
     - إذا كانت المواصفات دقيقة من الكتالوج استخدمها مباشرة، وإن تعذر معرفة قيمة معينة استخدم 0 للرقم و "غير معروف" للنص.
+    - إذا لم تطلب بطارية، اجعل قيم external_battery تساوي 0 أو "غير معروف".
     """
 
     fast_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-3.5-flash"]
@@ -279,13 +322,16 @@ if st.button("⚡ تحليل سريع واستخراج التقرير والحس
 
         if "📸" in search_mode:
             if not uploaded_panel or not uploaded_inverter:
-                st.error("⚠️ يرجى تحميل الصورتين معاً لمتابعة الحسابات.")
+                st.error("⚠️ يرجى تحميل صورة اللوح والإنفيرتر معاً لمتابعة الحسابات.")
+            elif enable_battery and not uploaded_battery:
+                st.error("⚠️ لقد قمت بتفعيل فحص البطارية، يرجى رفع صورة ملصق البطارية أيضاً.")
             else:
                 try:
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
+                    b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
                     with st.spinner("⚡ جاري قراءة الملصقات وتحليل الصور..."):
-                        res = extract_via_images(p_img, i_img, api_key)
+                        res = extract_via_images(p_img, i_img, b_img, api_key)
                 except Exception as e:
                     st.error(f"حدث خطأ أثناء معالجة الصور: {e}")
         else:
@@ -293,13 +339,15 @@ if st.button("⚡ تحليل سريع واستخراج التقرير والحس
                 st.error(
                     "⚠️ يرجى كتابة اسم الشركة والموديل للوح والإنفيرتر معاً."
                 )
+            elif enable_battery and not battery_text_query:
+                st.error("⚠️ لقد قمت بتفعيل فحص البطارية، يرجى كتابة اسم وموديل البطارية أيضاً.")
             else:
                 try:
                     with st.spinner(
                         "🔍 جاري البحث عن مواصفات الكتالوج والتحليل..."
                     ):
                         res = extract_via_text(
-                            panel_text_query, inverter_text_query, api_key
+                            panel_text_query, inverter_text_query, battery_text_query if enable_battery else "", api_key
                         )
                 except Exception as e:
                     st.error(f"حدث خطأ أثناء البحث بالنص: {e}")
@@ -317,6 +365,7 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     res = st.session_state["analysis_result"]
     panel = res.get("panel", {})
     inv = res.get("inverter", {})
+    ext_batt = res.get("external_battery", {})
 
     p_brand = panel.get("brand", "غير معروف")
     p_model = panel.get("model", "غير معروف")
@@ -385,7 +434,7 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     c_batt, c_ac, c_surge = st.columns(3)
 
     with c_batt:
-        st.markdown("#### 🔋 نظام البطاريات")
+        st.markdown("#### 🔋 نظام بطاريات الإنفيرتر")
         batt_supported = batt_info.get("supported", False)
         batt_volts = safe_float(batt_info.get("nominal_voltage_v"))
         batt_type = batt_info.get("battery_type", "غير معروف")
@@ -393,8 +442,7 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
 
         if not batt_supported and batt_volts == 0:
             st.write(
-                "❌ **دعم البطاريات:** `لا يدعم بطاريات (On-Grid / Direct"
-                " Solar)`"
+                "❌ **دعم البطاريات:** `لا يدعم بطاريات (On-Grid / Direct Solar)`"
             )
         else:
             st.write("- **يدعم بطاريات:** `نعم`")
@@ -423,7 +471,40 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         st.write(f"- **قدرة البدء اللحظية:** {format_val(s_power, 'VA')}")
         st.write(f"- **مدة التحمل:** {format_val(s_duration, 'ثانية')}")
 
-    # الحسابات الكهربائية
+    # عرض وفحص البطارية الخارجية في حال تم تفعيلها
+    if enable_battery or (ext_batt.get("nominal_voltage_v", 0) > 0):
+        st.markdown("---")
+        st.subheader("🔋 مطابقة البطارية الخارجية المدخلة")
+        
+        b_brand = ext_batt.get("brand", "غير معروف")
+        b_model = ext_batt.get("model", "غير معروف")
+        b_chem = ext_batt.get("chemistry", "غير معروف")
+        b_volts = safe_float(ext_batt.get("nominal_voltage_v"))
+        b_ah = safe_float(ext_batt.get("capacity_ah"))
+        b_kwh = safe_float(ext_batt.get("capacity_kwh"))
+        b_max_chg = safe_float(ext_batt.get("max_charge_current_a"))
+        b_max_dischg = safe_float(ext_batt.get("max_discharge_current_a"))
+
+        col_b1, col_b2 = st.columns(2)
+        with col_b1:
+            st.write(f"**الشركة المصنعة:** {format_val(b_brand)}")
+            st.write(f"**الموديل:** {format_val(b_model)}")
+            st.write(f"**نوع الكيمياء:** {format_val(b_chem)}")
+            st.write(f"- **السعة:** {format_val(b_ah, 'Ah')} ({format_val(b_kwh, 'kWh')})")
+        with col_b2:
+            st.write(f"- **الجهد الاسمي:** {format_val(b_volts, 'V')}")
+            st.write(f"- **أقصى تيار شحن:** {format_val(b_max_chg, 'A')}")
+            st.write(f"- **أقصى تيار تفريغ:** {format_val(b_max_dischg, 'A')}")
+
+        # فحص توافق جهد البطارية مع الإنفيرتر
+        inv_batt_v = safe_float(batt_info.get("nominal_voltage_v"))
+        if inv_batt_v > 0 and b_volts > 0:
+            if abs(inv_batt_v - b_volts) < 2.0:
+                st.success(f"✅ **مطابقة الجهد:** جهد البطارية الخارجية ({b_volts}V) متوافق تماماً مع جهد نظام الإنفيرتر ({inv_batt_v}V).")
+            else:
+                st.error(f"❌ **عدم مطابقة الجهد:** جهد البطارية الخارجية ({b_volts}V) لا يتوافق مع جهد نظام الإنفيرتر المطلوبة ({inv_batt_v}V)!")
+
+    # الحسابات الكهربائية للألواح والإنفيرتر
     if voc == 0 or vmp == 0 or v_max == 0:
         st.error(
             "⚠️ البيانات الكهربائية الأساسية للجهد غير كافية لإجراء"
