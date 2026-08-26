@@ -10,7 +10,7 @@ import streamlit as st
 
 # 1. ضبط إعدادات الصفحة
 st.set_page_config(
-    page_title="حاسبة توافق الألواح والإنفيرتر الشاملة",
+    page_title="حاسبة توافق الألواح والإنفيرتر والبطاريات الشاملة",
     page_icon="☀️",
     layout="centered",
     initial_sidebar_state="collapsed",
@@ -49,8 +49,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("☀️ حاسبة توافق الألواح والإنفيرتر")
-st.caption("محدث للعمل مع نموذج gemini-3.6-flash الجديد")
+st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات الشاملة")
+st.caption("محدث للعمل مع نموذج gemini-3.6-flash الجديد وبكامل التفاصيل")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -69,7 +69,7 @@ search_mode = st.radio(
     index=0,
 )
 
-enable_battery = st.toggle("🔋 تفعيل فحص وتحليل بطارية خارجية مخصصة", value=False)
+enable_battery = st.toggle("🔋 تفعيل فحص وتحليل بطارية خارجية مخصصة", value=True)
 
 uploaded_panel = None
 uploaded_inverter = None
@@ -177,7 +177,7 @@ def process_extraction(contents: list, key: str) -> dict:
 
 
 # 5. زر التحليل
-if st.button("⚡ تحليل واستخراج التقرير"):
+if st.button("⚡ تحليل واستخراج التقرير الشامل"):
     if not api_key:
         st.error("⚠️ يرجى إدخال مفتاح Gemini API Key في القائمة الجانبية.")
     else:
@@ -192,11 +192,11 @@ if st.button("⚡ تحليل واستخراج التقرير"):
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
                     b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
-                    with st.spinner("⚡ جاري معالجة الصور عبر النموذج الجديد..."):
+                    with st.spinner("⚡ جاري معالجة الصور عبر النموذج الجديد واستخراج كافة التفاصيل..."):
                         contents = [prepare_image(p_img), prepare_image(i_img)]
                         if b_img:
                             contents.append(prepare_image(b_img))
-                        contents.append("قم بتحليل الصور المرفقة واستخراج المواصفات الكهربائية الكاملة.")
+                        contents.append("قم بتحليل الصور المرفقة واستخراج المواصفات الكهربائية الكاملة للألواح والإنفيرتر والبطاريات.")
                         res = process_extraction(contents, api_key)
                 except Exception as e:
                     st.error(f"❌ {e}")
@@ -205,7 +205,7 @@ if st.button("⚡ تحليل واستخراج التقرير"):
                 st.error("⚠️ يرجى كتابة اسم الشركة والموديل للوح والإنفيرتر.")
             else:
                 try:
-                    with st.spinner("🔍 جاري جلب المواصفات والتحليل..."):
+                    with st.spinner("🔍 جاري جلب المواصفات والتحليل الشامل..."):
                         b_prompt = f'والبطارية الخارجية: "{battery_text_query}"' if enable_battery and battery_text_query else ""
                         prompt = f'استخرج مواصفات اللوح: "{panel_text_query}"، والإنفيرتر: "{inverter_text_query}" {b_prompt}.'
                         res = process_extraction([prompt], api_key)
@@ -216,11 +216,13 @@ if st.button("⚡ تحليل واستخراج التقرير"):
             st.session_state["analysis_result"] = res
             st.toast(f"🚀 تم التحليل بنجاح في {round(time.time() - start_t, 2)} ثوانٍ!", icon="⚡")
 
-# 6. عرض النتائج والمخرجات
+# 6. عرض النتائج والمخرجات الشاملة
 if "analysis_result" in st.session_state and st.session_state["analysis_result"]:
     res = st.session_state["analysis_result"]
     panel = res.get("panel", {})
     inv = res.get("inverter", {})
+    ext_bat = res.get("external_battery", {})
+    inv_bat = inv.get("battery", {})
 
     p_brand = panel.get("brand", "غير معروف")
     p_model = panel.get("model", "غير معروف")
@@ -228,6 +230,7 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     voc = safe_float(panel.get("voc"))
     vmp = safe_float(panel.get("vmp"))
     isc = safe_float(panel.get("isc"))
+    imp = safe_float(panel.get("imp"))
 
     i_brand = inv.get("brand", "غير معروف")
     i_model = inv.get("model", "غير معروف")
@@ -237,6 +240,7 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     v_mppt_max = safe_float(inv.get("v_mppt_max"))
     mppt_count = safe_int(inv.get("mppt_count"), default=1)
     strings_per_mppt = safe_int(inv.get("strings_per_mppt"), default=1)
+    max_mppt_current = safe_float(inv.get("max_mppt_current"))
 
     st.subheader("📌 البيانات التعريفية والموديلات المكتشفة")
     col_p_info, col_i_info = st.columns(2)
@@ -249,16 +253,45 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         st.write(f"- جهد الدارة المفتوحة (Voc): {format_val(voc, 'V')}")
         st.write(f"- الجهد التشغيلي (Vmp): {format_val(vmp, 'V')}")
         st.write(f"- تيار القصر (Isc): {format_val(isc, 'A')}")
+        st.write(f"- التيار التشغيلي (Imp): {format_val(imp, 'A')}")
 
     with col_i_info:
         st.markdown("### ⚡ الإنفيرتر")
         st.write(f"**الشركة المصنعة:** {format_val(i_brand)}")
         st.write(f"**الموديل:** {format_val(i_model)}")
-        st.write(f"- القدرة الاسمية: {format_val(ac_rated_power, 'W')}")
+        st.write(f"- القدرة الاسمية (AC): {format_val(ac_rated_power, 'W')}")
         st.write(f"- أقصى جهد مستمر (DC Max): {format_val(v_max, 'V')}")
         st.write(f"- أدنى جهد MPPT: {format_val(v_mppt_min, 'V')}")
         st.write(f"- أقصى جهد MPPT: {format_val(v_mppt_max, 'V')}")
+        st.write(f"- عدد مداخل MPPT: {format_val(mppt_count)}")
+        st.write(f"- أقصى تيار مدخل MPPT: {format_val(max_mppt_current, 'A')}")
 
+    # تفاصيل بطارية الإنفيرتر الداخلية أو المتوافقة
+    st.markdown("---")
+    st.subheader("🔋 مواصفات بطارية الإنفيرتر المدعومة")
+    col_ib1, col_ib2 = st.columns(2)
+    with col_ib1:
+        st.write(f"- يدعم بطارية خارجية؟: `{'نعم' if inv_bat.get('supported', True) else 'لا'}`")
+        st.write(f"- الجهد الاسمي للبطارية: {format_val(inv_bat.get('nominal_voltage_v'), 'V')}")
+    with col_ib2:
+        st.write(f"- نوع البطارية المدعوم: {format_val(inv_bat.get('battery_type'))}")
+        st.write(f"- أقصى تيار شحن للبطارية: {format_val(inv_bat.get('max_charge_current_a'), 'A')}")
+
+    # إذا تم إدخال بطارية خارجية مستقلة
+    if enable_battery and ext_bat and ext_bat.get("model"):
+        st.markdown("---")
+        st.subheader("🔋 مواصفات البطارية الخارجية المحددة")
+        cb1, cb2 = st.columns(2)
+        with cb1:
+            st.write(f"**الشركة / الموديل:** {format_val(ext_bat.get('brand'))} - {format_val(ext_bat.get('model'))}")
+            st.write(f"- الكيمياء النوعية: {format_val(ext_bat.get('chemistry'))}")
+            st.write(f"- السعة بالـ Ah: {format_val(ext_bat.get('capacity_ah'), 'Ah')}")
+        with cb2:
+            st.write(f"- السعة بالـ kWh: {format_val(ext_bat.get('capacity_kwh'), 'kWh')}")
+            st.write(f"- الجهد الاسمي: {format_val(ext_bat.get('nominal_voltage_v'), 'V')}")
+            st.write(f"- تيار الشحن/التفريغ الأقصى: {format_val(ext_bat.get('max_charge_current_a'), 'A')}")
+
+    # الحسابات الهندسية الآمنة
     if voc > 0 and vmp > 0 and v_max > 0:
         v_mppt_min_safe = v_mppt_min * 1.10
         min_string_safe = math.ceil(v_mppt_min_safe / vmp) if vmp > 0 else 1
