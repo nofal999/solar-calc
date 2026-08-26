@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("النسخة المستقرة المخصصة لتجنب أخطاء الحصة المجانية (429)")
+st.caption("النسخة المتكيفة تلقائياً مع النماذج المتاحة في حسابك")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -61,7 +61,7 @@ with st.sidebar:
         type="password",
         help="احصل عليه مجاناً من Google AI Studio",
     )
-    st.info("💡 نصيحة: تأكد من إنشاء مفتاح جديد من مشروع مختلف إذا استمر خطأ 429.")
+    st.info("💡 المفتاح مطلوب لعمليات التحليل والاستخراج.")
 
 # 4. طرق البحث
 search_mode = st.radio(
@@ -142,6 +142,24 @@ def clean_json_response(text: str) -> str:
     return text.strip()
 
 
+def get_active_model_name() -> str:
+    """استعلام ديناميكي ذكي لجلب اسم أول نموذج متاح يدعم توليد المحتوى في حسابك"""
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                # نفضل نماذج الـ flash أو النماذج الحديثة المتاحة
+                if "flash" in m.name.lower():
+                    return m.name
+        # إذا لم يُعثر على flash، نرجع أول نموذج متاح يدعم الطريقة
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                return m.name
+    except Exception:
+        pass
+    # قيمة افتراضية كبديل أخير إذا فشل الاستعلام
+    return "gemini-2.5-flash"
+
+
 def process_extraction(contents: list, key: str) -> dict:
     genai.configure(api_key=key.strip())
     
@@ -161,9 +179,7 @@ def process_extraction(contents: list, key: str) -> dict:
     """
 
     all_inputs = [system_instruction] + contents
-    
-    # استخدام النموذج المعتقر للاستخدام المجاني المباشر لتلافي استهلاك الحصة الجديدة للنماذج المدفوعة/الحديثة
-    target_model = "gemini-1.5-flash"
+    target_model = get_active_model_name()
     
     try:
         model = genai.GenerativeModel(target_model)
@@ -174,7 +190,7 @@ def process_extraction(contents: list, key: str) -> dict:
         cleaned_json = clean_json_response(response.text)
         return json.loads(cleaned_json)
     except Exception as e:
-        raise Exception(f"خطأ في الاتصال بالنموذج ({target_model}): {str(e)}")
+        raise Exception(f"خطأ في الاتصال بالنموذج النشط ({target_model}): {str(e)}")
 
 
 # 5. زر التحليل الفوري
@@ -193,7 +209,7 @@ if st.button("⚡ تحليل فائق السرعة واستخراج التقري
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
                     b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
-                    with st.spinner("⚡ جاري الاتصال بالنموذج ومعالجة البيانات..."):
+                    with st.spinner("⚡ جاري جلب النماذج المتاحة ومعالجة البيانات..."):
                         contents = [prepare_image(p_img), prepare_image(i_img)]
                         if b_img:
                             contents.append(prepare_image(b_img))
