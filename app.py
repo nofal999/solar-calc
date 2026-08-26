@@ -161,7 +161,6 @@ def process_extraction_via_sdk(contents: list, key: str) -> dict:
     """
 
     try:
-        # استخدام النموذج المحدث بناءً على طلب النظام الرسمي لمنع خطأ 404
         model = genai.GenerativeModel(
             model_name="gemini-3.6-flash",
             system_instruction=system_instruction,
@@ -175,7 +174,7 @@ def process_extraction_via_sdk(contents: list, key: str) -> dict:
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg:
-            raise Exception("تم استنفاد الحد الأقص للطلبات المجانية (Quota Exceeded). يرجى الانتظار قليلاً.")
+            raise Exception("تم استنفاد الحد الأقصى للطلبات المجانية (Quota Exceeded). يرجى الانتظار قليلاً.")
         else:
             raise Exception(f"خطأ أثناء معالجة الطلب: {error_msg}")
 
@@ -220,7 +219,7 @@ if st.button("⚡ تحليل فائق السرعة واستخراج التقري
             st.session_state["analysis_result"] = res
             st.toast(f"🚀 تم التحليل بنجاح في {round(time.time() - start_t, 2)} ثوانٍ!", icon="⚡")
 
-# 6. عرض النتائج والمخرجات الشاملة
+# 6. عرض النتائج والمخرجات الشاملة بالتفصيل الكامل
 if "analysis_result" in st.session_state and st.session_state["analysis_result"]:
     res = st.session_state["analysis_result"]
     panel = res.get("panel", {})
@@ -233,6 +232,7 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     voc = safe_float(panel.get("voc"))
     vmp = safe_float(panel.get("vmp"))
     isc = safe_float(panel.get("isc"))
+    imp = safe_float(panel.get("imp"))
 
     i_brand = inv.get("brand", "غير معروف")
     i_model = inv.get("model", "غير معروف")
@@ -242,6 +242,7 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     v_mppt_max = safe_float(inv.get("v_mppt_max"))
     mppt_count = safe_int(inv.get("mppt_count"), default=1)
     strings_per_mppt = safe_int(inv.get("strings_per_mppt"), default=1)
+    max_mppt_current = safe_float(inv.get("max_mppt_current"))
 
     st.subheader("📌 البيانات التعريفية والموديلات المكتشفة")
     col_p_info, col_i_info = st.columns(2)
@@ -254,6 +255,7 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         st.write(f"- جهد الدارة المفتوحة (Voc): {format_val(voc, 'V')}")
         st.write(f"- الجهد التشغيلي (Vmp): {format_val(vmp, 'V')}")
         st.write(f"- تيار القصر (Isc): {format_val(isc, 'A')}")
+        st.write(f"- التيار التشغيلي (Imp): {format_val(imp, 'A')}")
 
     with col_i_info:
         st.markdown("### ⚡ الإنفيرتر")
@@ -263,13 +265,19 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         st.write(f"- أقصى جهد مستمر (DC Max): {format_val(v_max, 'V')}")
         st.write(f"- أدنى جهد MPPT: {format_val(v_mppt_min, 'V')}")
         st.write(f"- أقصى جهد MPPT: {format_val(v_mppt_max, 'V')}")
+        st.write(f"- عدد مسارات MPPT: {format_val(mppt_count)}")
+        st.write(f"- عدد السلاسل لكل MPPT: {format_val(strings_per_mppt)}")
+        st.write(f"- أقصى تيار لكل MPPT: {format_val(max_mppt_current, 'A')}")
 
     if enable_battery and ext_bat:
-        st.markdown("### 🔋 البطارية الخارجية")
+        st.markdown("### 🔋 البطارية الخارجية المخصصة")
         st.write(f"**الشركة المصنعة:** {format_val(ext_bat.get('brand'))}")
         st.write(f"**الموديل:** {format_val(ext_bat.get('model'))}")
+        st.write(f"- الكيمياء: {format_val(ext_bat.get('chemistry'))}")
         st.write(f"- السعة: {format_val(ext_bat.get('capacity_ah'), 'Ah')} / {format_val(ext_bat.get('capacity_kwh'), 'kWh')}")
         st.write(f"- الجهد الاسمي: {format_val(ext_bat.get('nominal_voltage_v'), 'V')}")
+        st.write(f"- أقصى تيار شحن: {format_val(ext_bat.get('max_charge_current_a'), 'A')}")
+        st.write(f"- أقصى تيار تفريغ: {format_val(ext_bat.get('max_discharge_current_a'), 'A')}")
 
     if voc > 0 and vmp > 0 and v_max > 0:
         v_mppt_min_safe = v_mppt_min * 1.10
@@ -293,8 +301,12 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
         st.success(f"""
         🛡️ **حدود الأمان بالسلسلة الواحدة:**
-        * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح.
-        * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً.
+        * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح (لضمان تجاوز أدنى جهد MPPT مع الأمان).
+        * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً (لعدم تجاوز أقصى جهد MPPT وجهد DC Max مع مراعاة معامل الحرارة الشتوي).
         * **العدد الموصى به مثالياً بالسلسلة:** `{rec_string}` ألواح.
-        * **القدرة الكلية المقترحة:** `{rec_total_panels}` لوحاً (`{rec_kw} kW`)
+        * **عدد مسارات الـ MPPT المتاحة:** `{mppt_count}` مسارات.
+        * **عدد السلاسل لكل MPPT:** `{strings_per_mppt}` سلاسل.
+        * **إجمالي عدد السلاسل الكلي:** `{total_strings}` سلاسل.
+        * **إجمالي عدد الألواح المقترح:** `{rec_total_panels}` لوحاً.
+        * **القدرة الكلية للنظام المقترح:** `{rec_kw} kW` (توازي قدرة `{pmax}W` للوح الواحد).
         """)
