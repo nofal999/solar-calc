@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("النسخة الشاملة الكاملة (تعتمد على gemini-3.6-flash)")
+st.caption("النسخة الشاملة (تعتمد على gemini-3.6-flash)")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -62,11 +62,6 @@ with st.sidebar:
         help="احصل عليه مجاناً من Google AI Studio",
     )
     st.info("💡 المفتاح مطلوب لعمليات التحليل والاستخراج.")
-    
-    st.markdown("---")
-    st.markdown("### 🎛️ تخصيص عدد الألواح يدوياً")
-    custom_panels_mode = st.toggle("تفعيل التخصيص اليدوي لعدد الألواح", value=False)
-    user_panels_count = st.number_input("إجمالي عدد الألواح المطلوبة للنظام:", min_value=1, max_value=100, value=12, step=1)
 
 # 4. طرق البحث
 search_mode = st.radio(
@@ -179,7 +174,7 @@ def process_extraction_via_sdk(contents: list, key: str) -> dict:
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg:
-            raise Exception("تم استنفاد الحد الأقصى للطلبات المجانية (Quota Exceeded). يرجى الانتظار قليلاً.")
+            raise Exception("تم استنفاد الحد الأقصى للطلبات المجانية (Quota Exceeded) لهذا المفتاح. يرجى الانتظار قليلاً.")
         else:
             raise Exception(f"خطأ أثناء معالجة الطلب: {error_msg}")
 
@@ -224,7 +219,7 @@ if st.button("⚡ تحليل فائق السرعة واستخراج التقري
             st.session_state["analysis_result"] = res
             st.toast(f"🚀 تم التحليل بنجاح في {round(time.time() - start_t, 2)} ثوانٍ!", icon="⚡")
 
-# 6. عرض النتائج والمخرجات الشاملة بالتفصيل الكامل
+# 6. عرض النتائج والمخرجات الشاملة
 if "analysis_result" in st.session_state and st.session_state["analysis_result"]:
     res = st.session_state["analysis_result"]
     panel = res.get("panel", {})
@@ -237,7 +232,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     voc = safe_float(panel.get("voc"))
     vmp = safe_float(panel.get("vmp"))
     isc = safe_float(panel.get("isc"))
-    imp = safe_float(panel.get("imp"))
 
     i_brand = inv.get("brand", "غير معروف")
     i_model = inv.get("model", "غير معروف")
@@ -247,7 +241,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     v_mppt_max = safe_float(inv.get("v_mppt_max"))
     mppt_count = safe_int(inv.get("mppt_count"), default=1)
     strings_per_mppt = safe_int(inv.get("strings_per_mppt"), default=1)
-    max_mppt_current = safe_float(inv.get("max_mppt_current"))
 
     st.subheader("📌 البيانات التعريفية والموديلات المكتشفة")
     col_p_info, col_i_info = st.columns(2)
@@ -260,7 +253,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         st.write(f"- جهد الدارة المفتوحة (Voc): {format_val(voc, 'V')}")
         st.write(f"- الجهد التشغيلي (Vmp): {format_val(vmp, 'V')}")
         st.write(f"- تيار القصر (Isc): {format_val(isc, 'A')}")
-        st.write(f"- التيار التشغيلي (Imp): {format_val(imp, 'A')}")
 
     with col_i_info:
         st.markdown("### ⚡ الإنفيرتر")
@@ -270,19 +262,13 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         st.write(f"- أقصى جهد مستمر (DC Max): {format_val(v_max, 'V')}")
         st.write(f"- أدنى جهد MPPT: {format_val(v_mppt_min, 'V')}")
         st.write(f"- أقصى جهد MPPT: {format_val(v_mppt_max, 'V')}")
-        st.write(f"- عدد مسارات MPPT: {format_val(mppt_count)}")
-        st.write(f"- عدد السلاسل لكل MPPT: {format_val(strings_per_mppt)}")
-        st.write(f"- أقصى تيار لكل MPPT: {format_val(max_mppt_current, 'A')}")
 
     if enable_battery and ext_bat:
-        st.markdown("### 🔋 البطارية الخارجية المخصصة")
+        st.markdown("### 🔋 البطارية الخارجية")
         st.write(f"**الشركة المصنعة:** {format_val(ext_bat.get('brand'))}")
         st.write(f"**الموديل:** {format_val(ext_bat.get('model'))}")
-        st.write(f"- الكيمياء: {format_val(ext_bat.get('chemistry'))}")
         st.write(f"- السعة: {format_val(ext_bat.get('capacity_ah'), 'Ah')} / {format_val(ext_bat.get('capacity_kwh'), 'kWh')}")
         st.write(f"- الجهد الاسمي: {format_val(ext_bat.get('nominal_voltage_v'), 'V')}")
-        st.write(f"- أقصى تيار شحن: {format_val(ext_bat.get('max_charge_current_a'), 'A')}")
-        st.write(f"- أقصى تيار تفريغ: {format_val(ext_bat.get('max_discharge_current_a'), 'A')}")
 
     if voc > 0 and vmp > 0 and v_max > 0:
         v_mppt_min_safe = v_mppt_min * 1.10
@@ -299,32 +285,15 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
 
         rec_string = math.floor((min_string_safe + max_string_safe) / 2)
         total_strings = mppt_count * strings_per_mppt
-        
-        if custom_panels_mode:
-            rec_total_panels = user_panels_count
-        else:
-            rec_total_panels = rec_string * total_strings
-            
+        rec_total_panels = rec_string * total_strings
         rec_kw = round((rec_total_panels * pmax) / 1000, 2)
 
         st.markdown("---")
         st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
-        
-        # الخيارات الثلاثة التفصيلية (أدنى تركيب، أعلى تركيب، والتركيب المثالي)
-        col_opt1, col_opt2, col_opt3 = st.columns(3)
-        with col_opt1:
-            st.info(f"🔻 **الحد الأدنى للتركيب**\n\n`{min_string_safe}` ألواح بالسلسلة\n(أقل عدد يضمن عمل الـ MPPT)")
-        with col_opt2:
-            st.warning(f"🔺 **الحد الأقصى للتركيب**\n\n`{max_string_safe}` لوحاً بالسلسلة\n(أقصى حد آمن مع برودة الشتاء)")
-        with col_opt3:
-            st.success(f"⭐ **التركيب المثالي**\n\n`{rec_string}` ألواح بالسلسلة\n(الخيار الأفضل للاستقرار)")
-
-        st.markdown("---")
         st.success(f"""
-        🛡️ **التقرير الشامل لتوزيع النظام:**
-        * **عدد مسارات الـ MPPT المتاحة:** `{mppt_count}` مسارات.
-        * **عدد السلاسل لكل MPPT:** `{strings_per_mppt}` سلاسل.
-        * **إجمالي عدد السلاسل الكلي:** `{total_strings}` سلاسل.
-        * **إجمالي عدد الألواح المقترح:** `{rec_total_panels}` لوحاً.
-        * **القدرة الكلية للنظام المقترح:** `{rec_kw} kW` (توازي قدرة `{pmax}W` للوح الواحد).
+        🛡️ **حدود الأمان بالسلسلة الواحدة:**
+        * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح.
+        * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً.
+        * **العدد الموصى به مثالياً بالسلسلة:** `{rec_string}` ألواح.
+        * **القدرة الكلية المقترحة:** `{rec_total_panels}` لوحاً (`{rec_kw} kW`)
         """)
