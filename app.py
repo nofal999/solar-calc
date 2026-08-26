@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("النسخة المتكيفة تلقائياً مع النماذج المتاحة في حسابك")
+st.caption("النسخة النهائية المستقرة المعتمدة على النموذج الأحدث (gemini-3.6-flash)")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -142,24 +142,6 @@ def clean_json_response(text: str) -> str:
     return text.strip()
 
 
-def get_active_model_name() -> str:
-    """استعلام ديناميكي ذكي لجلب اسم أول نموذج متاح يدعم توليد المحتوى في حسابك"""
-    try:
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                # نفضل نماذج الـ flash أو النماذج الحديثة المتاحة
-                if "flash" in m.name.lower():
-                    return m.name
-        # إذا لم يُعثر على flash، نرجع أول نموذج متاح يدعم الطريقة
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                return m.name
-    except Exception:
-        pass
-    # قيمة افتراضية كبديل أخير إذا فشل الاستعلام
-    return "gemini-2.5-flash"
-
-
 def process_extraction(contents: list, key: str) -> dict:
     genai.configure(api_key=key.strip())
     
@@ -179,7 +161,9 @@ def process_extraction(contents: list, key: str) -> dict:
     """
 
     all_inputs = [system_instruction] + contents
-    target_model = get_active_model_name()
+    
+    # استخدام النموذج المعتمد والجديد بشكل مباشر وصريح دون أي تخمين
+    target_model = "gemini-3.6-flash"
     
     try:
         model = genai.GenerativeModel(target_model)
@@ -190,7 +174,13 @@ def process_extraction(contents: list, key: str) -> dict:
         cleaned_json = clean_json_response(response.text)
         return json.loads(cleaned_json)
     except Exception as e:
-        raise Exception(f"خطأ في الاتصال بالنموذج النشط ({target_model}): {str(e)}")
+        error_msg = str(e)
+        if "429" in error_msg:
+            raise Exception("تم استنفاد الحد الأقصى للطلبات المجانية (Quota Exceeded). يرجى الانتظار قليلاً أو استخدام مفتاح API آخر.")
+        elif "404" in error_msg:
+            raise Exception(f"النموذج ({target_model}) غير متوفر لهذا المفتاح أو الحساب.")
+        else:
+            raise Exception(f"خطأ في الاتصال: {error_msg}")
 
 
 # 5. زر التحليل الفوري
@@ -209,7 +199,7 @@ if st.button("⚡ تحليل فائق السرعة واستخراج التقري
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
                     b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
-                    with st.spinner("⚡ جاري جلب النماذج المتاحة ومعالجة البيانات..."):
+                    with st.spinner("⚡ جاري الاتصال بالنموذج المعتمد ومعالجة البيانات..."):
                         contents = [prepare_image(p_img), prepare_image(i_img)]
                         if b_img:
                             contents.append(prepare_image(b_img))
