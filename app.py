@@ -4,7 +4,7 @@ import time
 from typing import Any, Dict
 
 from PIL import Image
-import requests
+import google.generativeai as genai
 import streamlit as st
 
 # 1. ضبط إعدادات الصفحة
@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("نسخة الويب المستقرة (الأتصال المباشر الآمن)")
+st.caption("نسخة الويب المستقرة (بواسطة المكتبة الرسمية)")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -142,15 +142,9 @@ def clean_json_response(text: str) -> str:
     return text.strip()
 
 
-def process_extraction_via_rest(contents: list, key: str) -> dict:
-    import base64
-    import io
-
-    # تنظيف المفتاح من أي مسافات مخفية قد تفسد الرابط
-    clean_key = key.strip()
-    
-    # بناء الرابط بشكل آمن ومباشر
-    url = f"[https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=){clean_key}"
+def process_extraction_via_sdk(contents: list, key: str) -> dict:
+    # تهيئة المكتبة الرسمية
+    genai.configure(api_key=key.strip())
     
     system_instruction = """
     أنت مهندس طاقة شمسية خبير. استخرج المواصفات وأعد الإجابة بصيغة JSON حصراً وحسب الهيكل التالي بدون أي نصوص إضافية:
@@ -167,53 +161,24 @@ def process_extraction_via_rest(contents: list, key: str) -> dict:
     }
     """
 
-    parts = [{"text": system_instruction}]
-    
-    for item in contents:
-        if isinstance(item, Image.Image):
-            buffered = io.BytesIO()
-            item.save(buffered, format="JPEG")
-            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            parts.append({
-                "inline_data": {
-                    "mime_type": "image/jpeg",
-                    "data": img_str
-                }
-            })
-        else:
-            parts.append({"text": str(item)})
-
-    payload = {
-        "contents": [{"parts": parts}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "temperature": 0.1
-        }
-    }
-
-    headers = {"Content-Type": "application/json"}
-    
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
-    except requests.exceptions.RequestException as e:
-        raise Exception(f"فشل الاتصال بالإنترنت أو خطأ في الرابط: {str(e)}")
-    
-    if response.status_code != 200:
-        error_text = response.text
-        if "429" in error_text:
-            raise Exception("تم استنفاد الحد الأقصى للطلبات المجانية (Quota Exceeded). يرجى الانتظار قليلاً أو إنشاء مفتاح جديد من مشروع جديد.")
-        elif "404" in error_text:
-            raise Exception("خطأ 404: النموذج غير متاح أو الرابط غير صحيح.")
-        else:
-            raise Exception(f"خطأ API ({response.status_code}): {error_text}")
-
-    res_json = response.json()
-    try:
-        raw_text = res_json["candidates"][0]["content"]["parts"][0]["text"]
-        cleaned_json = clean_json_response(raw_text)
+        # استخدام النموذج المستقر
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            system_instruction=system_instruction,
+            generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+        )
+        
+        response = model.generate_content(contents)
+        cleaned_json = clean_json_response(response.text)
         return json.loads(cleaned_json)
-    except (KeyError, IndexError, json.JSONDecodeError) as e:
-        raise Exception(f"فشل في تحليل الاستجابة: {str(e)}")
+        
+    except Exception as e:
+        error_msg = str(e)
+        if "429" in error_msg:
+            raise Exception("تم استنفاد الحد الأقصى للطلبات المجانية (Quota Exceeded). يرجى الانتظار قليلاً أو إنشاء مفتاح جديد.")
+        else:
+            raise Exception(f"خطأ أثناء معالجة الطلب: {error_msg}")
 
 
 # 5. زر التحليل الفوري
@@ -237,7 +202,7 @@ if st.button("⚡ تحليل فائق السرعة واستخراج التقري
                         if b_img:
                             contents.append(prepare_image(b_img))
                         contents.append("قم بتحليل الصور المرفقة واستخراج المواصفات الكهربائية الكاملة.")
-                        res = process_extraction_via_rest(contents, api_key)
+                        res = process_extraction_via_sdk(contents, api_key)
                 except Exception as e:
                     st.error(f"❌ {e}")
         else:
@@ -248,7 +213,7 @@ if st.button("⚡ تحليل فائق السرعة واستخراج التقري
                     with st.spinner("🔍 جاري جلب المواصفات والتحليل الفوري..."):
                         b_prompt = f'والبطارية الخارجية: "{battery_text_query}"' if enable_battery and battery_text_query else ""
                         prompt = f'استخرج مواصفات اللوح: "{panel_text_query}"، والإنفيرتر: "{inverter_text_query}" {b_prompt}.'
-                        res = process_extraction_via_rest([prompt], api_key)
+                        res = process_extraction_via_sdk([prompt], api_key)
                 except Exception as e:
                     st.error(f"❌ {e}")
 
