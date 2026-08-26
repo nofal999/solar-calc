@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("النسخة النهائية المستقرة المعتمدة على النموذج الأحدث (gemini-3.6-flash)")
+st.caption("النسخة ذاتية التكيف مع النماذج المتاحة في حسابك لمنع أخطاء 404 نهائياً")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -126,7 +126,7 @@ def format_val(value: Any, unit: str = "") -> str:
 def prepare_image(pil_img: Image.Image, max_dim: int = 1024) -> Image.Image:
     img_copy = pil_img.copy()
     if img_copy.mode != "RGB":
-        img_copy = img_copy.convert("RGB")
+        img_copy.convert("RGB")
     img_copy.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
     return img_copy
 
@@ -140,6 +140,24 @@ def clean_json_response(text: str) -> str:
     if text.endswith("```"):
         text = text[:-3]
     return text.strip()
+
+
+def get_best_available_model() -> str:
+    """بحث ديناميكي ذكي عن أفضل نموذج متاح يدعم توليد المحتوى في حساب المستخدم"""
+    try:
+        models = list(genai.list_models())
+        # ابحث عن أي نموذج Flash متوفر حالياً
+        for m in models:
+            if 'generateContent' in m.supported_generation_methods and 'flash' in m.name.lower():
+                return m.name
+        # إذا لم يوجد Flash، خذ أي نموذج يدعم التوليد
+        for m in models:
+            if 'generateContent' in m.supported_generation_methods:
+                return m.name
+    except Exception:
+        pass
+    # بديل أخير في حال فشل الاتصال بقائمة النماذج
+    return "models/gemini-2.5-flash"
 
 
 def process_extraction(contents: list, key: str) -> dict:
@@ -162,8 +180,8 @@ def process_extraction(contents: list, key: str) -> dict:
 
     all_inputs = [system_instruction] + contents
     
-    # استخدام النموذج المعتمد والجديد بشكل مباشر وصريح دون أي تخمين
-    target_model = "gemini-3.6-flash"
+    # اختيار النموذج المتاح تلقائياً ودون تثبيت مسبق
+    target_model = get_best_available_model()
     
     try:
         model = genai.GenerativeModel(target_model)
@@ -176,11 +194,9 @@ def process_extraction(contents: list, key: str) -> dict:
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg:
-            raise Exception("تم استنفاد الحد الأقصى للطلبات المجانية (Quota Exceeded). يرجى الانتظار قليلاً أو استخدام مفتاح API آخر.")
-        elif "404" in error_msg:
-            raise Exception(f"النموذج ({target_model}) غير متوفر لهذا المفتاح أو الحساب.")
+            raise Exception("تم استنفاد الحد الأقصى للطلبات المجانية (Quota Exceeded) لهذا المفتاح. يرجى استخدام مفتاح API آخر أو الانتظار قليلاً.")
         else:
-            raise Exception(f"خطأ في الاتصال: {error_msg}")
+            raise Exception(f"خطأ في الاتصال بالنموذج ({target_model}): {error_msg}")
 
 
 # 5. زر التحليل الفوري
@@ -199,7 +215,7 @@ if st.button("⚡ تحليل فائق السرعة واستخراج التقري
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
                     b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
-                    with st.spinner("⚡ جاري الاتصال بالنموذج المعتمد ومعالجة البيانات..."):
+                    with st.spinner("⚡ جاري استعلام النماذج المتاحة ومعالجة البيانات..."):
                         contents = [prepare_image(p_img), prepare_image(i_img)]
                         if b_img:
                             contents.append(prepare_image(b_img))
