@@ -143,14 +143,21 @@ def clean_json_response(text: str) -> str:
 
 
 def get_working_model(api_key: str):
-    """دالة بحث تلقائي ذكية تجلب أي نموذج متاح ويدعم التوليد في حسابك فوراً"""
+    """دالة بحث تلقائي ذكية تجلب أول نموذج متاح ويدعم التوليد في حسابك فوراً"""
     genai.configure(api_key=api_key.strip())
     try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                # تفضيل نماذج flash الحديثة إن وجدت في القائمة
+                if "flash" in m.name.lower():
+                    return m.name
+        # إذا لم يتم العثور على flash، أرجع أول نموذج يدعم التوليد
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
                 return m.name
     except Exception:
         pass
+    # كاحتياطي أخير محدث
     return "gemini-1.5-flash"
 
 
