@@ -257,7 +257,7 @@ JSON_STRUCTURE = """
 """
 
 
-# 6. دالة الاستخراج عن طريق الصور (تستعمل النموذج القياسي المعتمد gemini-2.5-flash)
+# 6. دالة الاستخراج عن طريق الصور (تستعمل النموذج المحدث gemini-3.6-flash)
 def extract_via_images(panel_img, inverter_img, battery_img, key):
     client = genai.Client(api_key=key)
     contents = []
@@ -282,7 +282,7 @@ def extract_via_images(panel_img, inverter_img, battery_img, key):
     contents.append(prompt)
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.6-flash",
         contents=contents,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -292,7 +292,7 @@ def extract_via_images(panel_img, inverter_img, battery_img, key):
     return json.loads(response.text)
 
 
-# 7. دالة الاستخراج عن طريق اسم الموديل (نصياً)
+# 7. دالة الاستخراج عن طريق اسم الموديل (نصياً) باستخدام gemini-3.6-flash
 def extract_via_text(p_text, i_text, b_text, key):
     client = genai.Client(api_key=key)
 
@@ -314,7 +314,7 @@ def extract_via_text(p_text, i_text, b_text, key):
     """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.6-flash",
         contents=[prompt],
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
