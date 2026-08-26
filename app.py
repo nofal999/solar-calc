@@ -1,171 +1,299 @@
-import os
-import streamlit as st
+import json
+import math
+import time
+from typing import Any, Dict
+
 import google.generativeai as genai
 from PIL import Image
-import io
+import streamlit as st
 
-# إعداد الصفحة وتكوينها
+# 1. ضبط إعدادات الصفحة
 st.set_page_config(
-    page_title="حاسبة الأنظمة الشمسية الذكية المتقدمة",
+    page_title="حاسبة توافق الألواح والإنفيرتر والبطاريات الشاملة",
     page_icon="☀️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="centered",
+    initial_sidebar_state="collapsed",
 )
 
-# تنسيق واجهة المستخدم واللغة العربية (RTL)
-st.markdown("""
+# 2. تخصيص الواجهة وتدفق النصوص (RTL)
+st.markdown(
+    """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap');
-    html, body, [class*="css"] {
-        font-family: 'Cairo', sans-serif;
+    [data-testid="stMainBlockContainer"], 
+    [data-testid="stSidebarContent"] {
         direction: rtl;
         text-align: right;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
-    .stTextInput, .stNumberInput, .stSelectbox {
-        direction: rtl;
+    
+    div[data-testid="stMarkdownContainer"] p,
+    div[data-testid="stMarkdownContainer"] h1,
+    div[data-testid="stMarkdownContainer"] h2,
+    div[data-testid="stMarkdownContainer"] h3,
+    div[data-testid="stMarkdownContainer"] h4,
+    div[data-testid="stMarkdownContainer"] li {
+        text-align: right !important;
+        direction: rtl !important;
+    }
+
+    .stButton>button {
+        width: 100%;
+        background-color: #0284c7;
+        color: white;
+        border-radius: 8px;
+        height: 3em;
+        font-weight: bold;
+        margin-top: 10px;
     }
     </style>
-""", unsafe_allow_html=True)
-
-# العنوان الرئيسي
-st.title("☀️ النظام الذكي لهندسة وتحليل الطاقة الشمسية")
-st.markdown("أداة هندسية متكاملة لتحليل توافق الألواح، الإنفيرترات، والبطاريات، واستخراج البيانات تلقائياً عبر الذكاء الاصطناعي (Gemini AI) أو الإدخال اليدوي.")
-
-# --- الشريط الجانبي للإعدادات ---
-st.sidebar.header("⚙️ إعدادات النظام والذكاء الاصطناعي")
-user_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API:", type="password", value=os.environ.get("GEMINI_API_KEY", ""))
-
-if user_api_key:
-    genai.configure(api_key=user_api_key)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📌 طريقة إدخال البيانات الفنية")
-input_mode = st.sidebar.radio(
-    "اختر الآلية المفضلة:",
-    ["استخراج البيانات من الصور (AI Datasheet)", "إدخال يدوي مباشر"]
+""",
+    unsafe_allow_html=True,
 )
 
-# القيم الافتراضية
-panel_voc, panel_isc, panel_vmpp, panel_impp, panel_power = 41.5, 11.2, 34.5, 10.5, 450
-inv_max_pv_w, inv_max_volt, inv_min_volt, inv_max_curr = 5000, 500, 120, 18
-battery_volt, battery_ah = 48, 100
+st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
+st.caption("تحليل ذكي يعتمد على الكشف التلقائي للنماذج لتجنب أخطاء 404 نهائياً")
 
-# --- قسم استخراج البيانات من الصور باستخدام الذكاء الاصطناعي ---
-if input_mode == "استخراج البيانات من الصور (AI Datasheet)":
-    st.markdown("### 📸 تحليل الملصقات الفنية (Datasheet) بالذكاء الاصطناعي")
-    
-    col_img1, col_img2 = st.columns(2)
-    
-    with col_img1:
-        st.subheader("1️⃣ لوح الطاقة الشمسية (Panel)")
-        panel_file = st.file_uploader("رفـع صورة ملصق اللوح الشمسي", type=["jpg", "png", "jpeg"], key="panel_img")
-        if panel_file:
-            image_p = Image.open(panel_file)
-            st.image(image_p, caption="صورة اللوح الشمسي المرفوعة", width=250)
+# 3. الشريط الجانبي
+with st.sidebar:
+    st.header("⚙️ الإعدادات")
+    api_key = st.text_input(
+        "مفتاح Gemini API Key:",
+        type="password",
+        help="احصل عليه مجاناً من Google AI Studio",
+    )
+    st.info("💡 المفتاح مطلوب لعمليات التحليل والاستخراج.")
 
-    with col_img2:
-        st.subheader("2️⃣ إنفيرتر الطاقة الشمسية (Inverter)")
-        inv_file = st.file_uploader("رفـع صورة ملصق الإنفيرتر", type=["jpg", "png", "jpeg"], key="inv_img")
-        if inv_file:
-            image_i = Image.open(inv_file)
-            st.image(image_i, caption="صورة الإنفيرتر المرفوعة", width=250)
-
-    # زر معالجة الصور عبر Gemini API
-    if st.button("🤖 تحليل الصور واستخراج البيانات الفنية تلقائياً", type="primary"):
-        if not user_api_key:
-            st.error("⚠️ الرجاء إدخال مفتاح Gemini API في الشريط الجانبي لتفعيل ميزة الذكاء الاصطناعي.")
-        elif not panel_file and not inv_file:
-            st.warning("⚠️ الرجاء رفع صورة واحدة على الأقل (لوح أو إنفيرتر) للتحليل.")
-        else:
-            with st.spinner("جاري تحليل الصور واستخراج الخصائص الكهربائية..."):
-                try:
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    prompt = "استخرج من هذه الصورة البيانات الفنية بدقة وأرجعها بأرقام واضحة مثل: Voc, Vmpp, Isc, Impp, Power."
-                    
-                    if panel_file:
-                        # إرسال صورة اللوح
-                        img_bytes = panel_file.getvalue()
-                        response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": img_bytes}])
-                        st.success("✅ تم تحليل لوح الطاقة بنجاح:")
-                        st.write(response.text)
-                        
-                    if inv_file:
-                        # إرسال صورة الإنفيرتر
-                        img_bytes_inv = inv_file.getvalue()
-                        response_inv = model.generate_content(["استخرج قدرة الإنفيرتر القصوى، أقصى جهد مدخل Voc، وأقل جهد MPPT.", {"mime_type": "image/jpeg", "data": img_bytes_inv}])
-                        st.success("✅ تم تحليل الإنفيرتر بنجاح:")
-                        st.write(response_inv.text)
-                        
-                except Exception as e:
-                    st.error(f"حدث خطأ أثناء الاتصال بـ Gemini API: {e}")
-
-    st.markdown("---")
-    st.info("💡 يمكنك الاعتماد على القيم الافتراضية أدناه أو تعديلها بناءً على النتائج المستخرجة:")
-
-# --- القسم الثاني: الإدخال اليدوي وتعديل المعلمات ---
-st.markdown("### 🎛️ ضبط الخصائص والبيانات الكهربائية")
-
-col_p1, col_p2, col_p3 = st.columns(3)
-with col_p1:
-    panel_power = st.number_input("قدرة اللوح الواحد (W):", value=panel_power, step=10)
-    panel_voc = st.number_input("جهد الدائرة المفتوحة Voc (V):", value=panel_voc, step=0.1)
-with col_p2:
-    panel_vmpp = st.number_input("جهد العمل Vmpp (V):", value=panel_vmpp, step=0.1)
-    panel_isc = st.number_input("تيار القصر Isc (A):", value=panel_isc, step=0.1)
-with col_p3:
-    panel_impp = st.number_input("تيار العمل Impp (A):", value=panel_impp, step=0.1)
-
-st.markdown("---")
-col_i1, col_i2, col_i3, col_i4 = st.columns(4)
-with col_i1:
-    inv_max_pv_w = st.number_input("القدرة القصوى للإنفيرتر (W):", value=inv_max_pv_w, step=100)
-with col_i2:
-    inv_max_volt = st.number_input("أقصى جهد مدخل Voc (V):", value=inv_max_volt, step=10.0)
-with col_i3:
-    inv_min_volt = st.number_input("أقل جهد تشغيل MPPT (V):", value=inv_min_volt, step=5.0)
-with col_i4:
-    inv_max_curr = st.number_input("أقصى تيار مدخل (A):", value=inv_max_curr, step=0.5)
-
-# --- القسم الثالث: حساب النتائج التلقائية والتوزيع ---
-st.markdown("---")
-if st.button("⚡ تشغيل التحليل الهندسي واستخراج الحسابات", type="primary"):
-    st.success("تم إجراء التحليل الهندسي بنجاح!")
-    
-    max_panels_in_string = int((inv_max_volt * 0.85) / panel_voc)
-    min_panels_in_string = int(inv_min_volt / panel_vmpp) + 1
-    rec_total_panels = int(inv_max_pv_w / panel_power)
-    
-    st.markdown("### 📊 نتائج الحسابات والتوصيات:")
-    r1, r2, r3 = st.columns(3)
-    r1.metric("العدد الموصى به للألواح", f"{rec_total_panels} لوح")
-    r2.metric("أقصى عدد في السلسلة (String)", f"{max_panels_in_string} لوح")
-    r3.metric("الحد الأدنى لعمل MPPT", f"{min_panels_in_string} لوح")
-
-# --- القسم الرابع: إدخال عدد الألواح المخصص والفحص المباشر ---
-st.markdown("---")
-st.subheader("⚙️ فحص توزيع عدد الألواح المخصص")
-user_target_panels = st.number_input(
-    "أدخل العدد الإجمالي المطلوب للألواح المراد تركيبها:",
-    min_value=1,
-    max_value=100,
-    value=12,
-    step=1,
-    help="أدخل العدد المرغوب لفحص تطابقه مع حدود الإنفيرتر الكهربائية",
+# 4. طرق البحث
+search_mode = st.radio(
+    "اختر طريقة إدخال البيانات للبحث والتحليل:",
+    ["📸 1. البحث عن طريق الصور (إرفاق الملصقات)", "✍️ 2. البحث عن طريق اسم الشركة والموديل (نصياً)"],
+    index=0,
 )
 
-if user_target_panels > 0:
-    total_system_power = user_target_panels * panel_power
-    total_string_voc = user_target_panels * panel_voc
+enable_battery = st.toggle("🔋 تفعيل فحص وتحليل بطارية خارجية مخصصة", value=False)
+
+uploaded_panel = None
+uploaded_inverter = None
+uploaded_battery = None
+panel_text_query = ""
+inverter_text_query = ""
+battery_text_query = ""
+
+if "📸" in search_mode:
+    cols = st.columns(3 if enable_battery else 2)
+    with cols[0]:
+        uploaded_panel = st.file_uploader("📸 صورة ملصق اللوح الشمسي", type=["jpg", "jpeg", "png"])
+    with cols[1]:
+        uploaded_inverter = st.file_uploader("📸 صورة ملصق الإنفيرتر", type=["jpg", "jpeg", "png"])
+    if enable_battery:
+        with cols[2]:
+            uploaded_battery = st.file_uploader("📸 صورة ملصق البطارية", type=["jpg", "jpeg", "png"])
+else:
+    cols = st.columns(3 if enable_battery else 2)
+    with cols[0]:
+        panel_text_query = st.text_input("☀️ اسم الشركة والموديل للوح الشمسي:", placeholder="مثال: Jinko Solar JKMM550M-72HL4-V")
+    with cols[1]:
+        inverter_text_query = st.text_input("⚡ اسم الشركة والموديل للإنفيرتر:", placeholder="مثال: Deye SUN-5K-SG04LP1-EU")
+    if enable_battery:
+        with cols[2]:
+            battery_text_query = st.text_input("🔋 اسم الشركة والموديل للبطارية:", placeholder="مثال: Felicity solar LPBF48300")
+
+
+def safe_float(value: Any, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_int(value: Any, default: int = 1) -> int:
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def format_val(value: Any, unit: str = "") -> str:
+    if value is None or value == "" or value == 0 or value == 0.0 or value == "غير محدد" or value == "غير معروف":
+        return "`غير موجود في البيانات`"
+    return f"`{value} {unit}`".strip()
+
+
+def prepare_image(pil_img: Image.Image, max_dim: int = 1024) -> Image.Image:
+    img_copy = pil_img.copy()
+    if img_copy.mode != "RGB":
+        img_copy = img_copy.convert("RGB")
+    img_copy.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+    return img_copy
+
+
+def clean_json_response(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    return text.strip()
+
+
+def get_working_model(api_key: str):
+    """دالة بحث تلقائي ذكية تجلب أي نموذج متاح ويدعم التوليد في حسابك فوراً"""
+    genai.configure(api_key=api_key.strip())
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                return m.name
+    except Exception:
+        pass
+    return "gemini-1.5-flash"
+
+
+def process_extraction(contents: list, key: str) -> dict:
+    genai.configure(api_key=key.strip())
     
-    st.info(f"💡 **مراجعة النظام للعدد المحدد ({user_target_panels} لوح):**")
-    inf_c1, inf_c2 = st.columns(2)
-    inf_c1.write(- f"إجمالي القدرة المتولدة: **{total_system_power} واط**")
-    inf_c2.write(- f"إجمالي الجهد (Voc متسلسل افتراضي): **{total_string_voc:.1f} فولت**")
-    
-    if total_string_voc > inv_max_volt:
-        st.error("⚠️ تحذير خطير: الجهد الإجمالي للسلسلة يتجاوز الحد الأقصى المسموح به للإنفيرتر! خطر احتراق الجهاز.")
+    system_instruction = """
+    أنت مهندس طاقة شمسية خبير. استخرج المواصفات وأعد الإجابة بصيغة JSON حصراً وحسب الهيكل التالي بدون أي نصوص إضافية:
+    {
+      "panel": {"brand": "", "model": "", "part_number": "", "type": "", "pmax": 0, "voc": 0, "vmp": 0, "isc": 0, "imp": 0},
+      "inverter": {
+        "brand": "", "model": "", "part_number": "", "type": "", "phase_type": "", "voltage_architecture": "", "ac_rated_power_w": 0,
+        "v_max": 0, "v_mppt_min": 0, "v_mppt_max": 0, "v_start": 0, "mppt_count": 1, "strings_per_mppt": 1, "max_mppt_current": 0,
+        "battery": {"supported": true, "nominal_voltage_v": 0, "battery_type": "", "max_charge_current_a": 0},
+        "ac_input_output": {"nominal_ac_voltage_v": "", "frequency_hz": "", "max_ac_input_current_a": 0, "max_ac_output_current_a": 0},
+        "startup_surge": {"surge_power_va": 0, "duration_seconds": 0}
+      },
+      "external_battery": {"brand": "", "model": "", "chemistry": "", "capacity_ah": 0, "capacity_kwh": 0, "nominal_voltage_v": 0, "max_charge_current_a": 0, "max_discharge_current_a": 0}
+    }
+    """
+
+    all_inputs = [system_instruction] + contents
+    target_model = get_working_model(key)
+
+    try:
+        model = genai.GenerativeModel(target_model)
+        response = model.generate_content(
+            all_inputs,
+            generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+        )
+        cleaned_json = clean_json_response(response.text)
+        return json.loads(cleaned_json)
+    except Exception as e:
+        raise Exception(f"تعذر استخراج البيانات باستخدام النموذج ({target_model}): {str(e)}")
+
+
+# 5. زر التحليل الفوري
+if st.button("⚡ تحليل فائق السرعة واستخراج التقرير"):
+    if not api_key:
+        st.error("⚠️ يرجى إدخال مفتاح Gemini API Key في القائمة الجانبية.")
     else:
-        st.success("✅ الجهد الكهربائي للسلسلة ضمن النطاق الآمن للإنفيرتر.")
+        res = None
+        start_t = time.time()
 
-st.markdown("---")
-st.caption("برمجية هندسة الطاقة الشمسية الذكية - الإصدار المتكامل والمحدث.")
+        if "📸" in search_mode:
+            if not uploaded_panel or not uploaded_inverter:
+                st.error("⚠️ يرجى تحميل صورة اللوح والإنفيرتر معاً لمتابعة الحسابات.")
+            else:
+                try:
+                    p_img = Image.open(uploaded_panel)
+                    i_img = Image.open(uploaded_inverter)
+                    b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
+                    with st.spinner("⚡ جاري البحث عن النموذج المتاح ومعالجة البيانات..."):
+                        contents = [prepare_image(p_img), prepare_image(i_img)]
+                        if b_img:
+                            contents.append(prepare_image(b_img))
+                        contents.append("قم بتحليل الصور المرفقة واستخراج المواصفات الكهربائية الكاملة.")
+                        res = process_extraction(contents, api_key)
+                except Exception as e:
+                    st.error(f"❌ {e}")
+        else:
+            if not panel_text_query or not inverter_text_query:
+                st.error("⚠️ يرجى كتابة اسم الشركة والموديل للوح والإنفيرتر معاً.")
+            else:
+                try:
+                    with st.spinner("🔍 جاري جلب المواصفات والتحليل الفوري..."):
+                        b_prompt = f'والبطارية الخارجية: "{battery_text_query}"' if enable_battery and battery_text_query else ""
+                        prompt = f'استخرج مواصفات اللوح: "{panel_text_query}"، والإنفيرتر: "{inverter_text_query}" {b_prompt}.'
+                        res = process_extraction([prompt], api_key)
+                except Exception as e:
+                    st.error(f"❌ {e}")
+
+        if res:
+            st.session_state["analysis_result"] = res
+            st.toast(f"🚀 تم التحليل بنجاح في {round(time.time() - start_t, 2)} ثوانٍ!", icon="⚡")
+
+# 6. عرض النتائج والمخرجات
+if "analysis_result" in st.session_state and st.session_state["analysis_result"]:
+    res = st.session_state["analysis_result"]
+    panel = res.get("panel", {})
+    inv = res.get("inverter", {})
+
+    p_brand = panel.get("brand", "غير معروف")
+    p_model = panel.get("model", "غير معروف")
+    pmax = safe_float(panel.get("pmax"))
+    voc = safe_float(panel.get("voc"))
+    vmp = safe_float(panel.get("vmp"))
+    isc = safe_float(panel.get("isc"))
+
+    i_brand = inv.get("brand", "غير معروف")
+    i_model = inv.get("model", "غير معروف")
+    ac_rated_power = safe_float(inv.get("ac_rated_power_w"))
+    v_max = safe_float(inv.get("v_max"))
+    v_mppt_min = safe_float(inv.get("v_mppt_min"))
+    v_mppt_max = safe_float(inv.get("v_mppt_max"))
+    mppt_count = safe_int(inv.get("mppt_count"), default=1)
+    strings_per_mppt = safe_int(inv.get("strings_per_mppt"), default=1)
+
+    st.subheader("📌 البيانات التعريفية والموديلات المكتشفة")
+    col_p_info, col_i_info = st.columns(2)
+
+    with col_p_info:
+        st.markdown("### ☀️ اللوح الشمسي")
+        st.write(f"**الشركة المصنعة:** {format_val(p_brand)}")
+        st.write(f"**الموديل:** {format_val(p_model)}")
+        st.write(f"- القدرة (Pmax): {format_val(pmax, 'W')}")
+        st.write(f"- جهد الدارة المفتوحة (Voc): {format_val(voc, 'V')}")
+        st.write(f"- الجهد التشغيلي (Vmp): {format_val(vmp, 'V')}")
+        st.write(f"- تيار القصر (Isc): {format_val(isc, 'A')}")
+
+    with col_i_info:
+        st.markdown("### ⚡ الإنفيرتر")
+        st.write(f"**الشركة المصنعة:** {format_val(i_brand)}")
+        st.write(f"**الموديل:** {format_val(i_model)}")
+        st.write(f"- القدرة الاسمية: {format_val(ac_rated_power, 'W')}")
+        st.write(f"- أقصى جهد مستمر (DC Max): {format_val(v_max, 'V')}")
+        st.write(f"- أدنى جهد MPPT: {format_val(v_mppt_min, 'V')}")
+        st.write(f"- أقصى جهد MPPT: {format_val(v_mppt_max, 'V')}")
+
+    if voc > 0 and vmp > 0 and v_max > 0:
+        v_mppt_min_safe = v_mppt_min * 1.10
+        min_string_safe = math.ceil(v_mppt_min_safe / vmp) if vmp > 0 else 1
+        voc_cold_safe = voc * 1.15
+        v_max_safe = v_max * 0.95
+
+        max_by_voc = math.floor(v_max_safe / voc_cold_safe) if voc_cold_safe > 0 else 1
+        max_by_mppt = math.floor(v_mppt_max / vmp) if vmp > 0 and v_mppt_max > 0 else max_by_voc
+        max_string_safe = min(max_by_voc, max_by_mppt) if max_by_mppt > 0 else max_by_voc
+
+        if max_string_safe < min_string_safe:
+            max_string_safe = min_string_safe
+
+        rec_string = math.floor((min_string_safe + max_string_safe) / 2)
+        total_strings = mppt_count * strings_per_mppt
+        rec_total_panels = rec_string * total_strings
+        rec_kw = round((rec_total_panels * pmax) / 1000, 2)
+
+        st.markdown("---")
+        st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
+        st.success(f"""
+        🛡️ **حدود الأمان بالسلسلة الواحدة:**
+        * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح.
+        * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً.
+        * **العدد الموصى به مثالياً بالسلسلة:** `{rec_string}` ألواح.
+        * **القدرة الكلية المقترحة:** `{rec_total_panels}` لوحاً (`{rec_kw} kW`)
+        """)
