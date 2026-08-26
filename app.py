@@ -162,7 +162,6 @@ def process_extraction(contents: list, key: str) -> dict:
     full_contents = [system_instruction] + contents
 
     try:
-        # استخدام النموذج المحدث الجديد حسب طلب النظام
         response = client.models.generate_content(
             model='gemini-3.6-flash',
             contents=full_contents,
@@ -273,4 +272,17 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         if max_string_safe < min_string_safe:
             max_string_safe = min_string_safe
 
-        rec_string = math.floor((min_string_safe + max_string_safe
+        rec_string = math.floor((min_string_safe + max_string_safe) / 2)
+        total_strings = mppt_count * strings_per_mppt
+        rec_total_panels = rec_string * total_strings
+        rec_kw = round((rec_total_panels * pmax) / 1000, 2)
+
+        st.markdown("---")
+        st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
+        st.success(f"""
+        🛡️ **حدود الأمان بالسلسلة الواحدة:**
+        * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح.
+        * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً.
+        * **العدد الموصى به مثالياً بالسلسلة:** `{rec_string}` ألواح.
+        * **القدرة الكلية المقترحة:** `{rec_total_panels}` لوحاً (`{rec_kw} kW`)
+        """)
