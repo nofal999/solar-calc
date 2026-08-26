@@ -257,7 +257,7 @@ JSON_STRUCTURE = """
 """
 
 
-# 6. دالة الاستخراج عن طريق الصور
+# 6. دالة الاستخراج عن طريق الصور (تستعمل النموذج القياسي المعتمد gemini-2.5-flash)
 def extract_via_images(panel_img, inverter_img, battery_img, key):
     client = genai.Client(api_key=key)
     contents = []
@@ -281,27 +281,15 @@ def extract_via_images(panel_img, inverter_img, battery_img, key):
     """
     contents.append(prompt)
 
-    # قائمة النماذج المتاحة والمدعومة للاتصال الآمن
-    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-    last_error = None
-
-    for model_name in models_to_try:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1,
-                ),
-            )
-            if response and response.text:
-                return json.loads(response.text)
-        except Exception as e:
-            last_error = e
-            continue
-            
-    raise Exception(f"فشل الاتصال بجميع النماذج المتاحة. الخطأ التقني: {last_error}")
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=contents,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.1,
+        ),
+    )
+    return json.loads(response.text)
 
 
 # 7. دالة الاستخراج عن طريق اسم الموديل (نصياً)
@@ -325,26 +313,15 @@ def extract_via_text(p_text, i_text, b_text, key):
     - إذا لم تطلب بطارية، اجعل قيم external_battery تساوي 0 أو "غير معروف".
     """
 
-    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-    last_error = None
-
-    for model_name in models_to_try:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=[prompt],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1,
-                ),
-            )
-            if response and response.text:
-                return json.loads(response.text)
-        except Exception as e:
-            last_error = e
-            continue
-            
-    raise Exception(f"فشل الاتصال بجميع النماذج المتاحة بالنص. الخطأ التقني: {last_error}")
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[prompt],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.1,
+        ),
+    )
+    return json.loads(response.text)
 
 
 # 8. زر التفعيل والتحليل
