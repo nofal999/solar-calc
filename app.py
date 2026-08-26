@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("النسخة الشاملة والمستقرة (تعتمد على gemini-1.5-flash)")
+st.caption("النسخة الشاملة (مع الكشف التلقائي لأحدث النماذج المتاحة)")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -160,8 +160,22 @@ def process_extraction_via_sdk(contents: list, key: str) -> dict:
     }
     """
 
-    # الاعتماد المباشر والمستقر على نموذج gemini-1.5-flash المتوافق مع الخطط المجانية
-    selected_model = "models/gemini-1.5-flash"
+    # البحث الديناميكي عن أي نموذج متاح يدعم توليد المحتوى في حسابك الحالي
+    selected_model = None
+    try:
+        for m in genai.list_models():
+            if "generateContent" in m.supported_generation_methods:
+                # تفضيل نماذج الـ flash الحديثة إذا وجدت
+                if "flash" in m.name:
+                    selected_model = m.name
+                    break
+                elif not selected_model:
+                    selected_model = m.name
+    except Exception:
+        pass
+
+    if not selected_model:
+        selected_model = "models/gemini-1.5-flash"  # احتياطي إن لم يعمل الفحص
 
     try:
         model = genai.GenerativeModel(
@@ -177,7 +191,7 @@ def process_extraction_via_sdk(contents: list, key: str) -> dict:
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg:
-            raise Exception("تم استنفاد الحد الأقصى للطلبات المجانية (Quota Exceeded) لهذا المفتاح. يرجى الانتظار قليلاً أو استخدام مفتاح آخر.")
+            raise Exception("تم استنفاد الحد الأقصى للطلبات المجانية (Quota Exceeded) لهذا المفتاح. يرجى الانتظار قليلاً.")
         else:
             raise Exception(f"خطأ أثناء معالجة الطلب: {error_msg}")
 
@@ -289,14 +303,4 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         rec_string = math.floor((min_string_safe + max_string_safe) / 2)
         total_strings = mppt_count * strings_per_mppt
         rec_total_panels = rec_string * total_strings
-        rec_kw = round((rec_total_panels * pmax) / 1000, 2)
-
-        st.markdown("---")
-        st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
-        st.success(f"""
-        🛡️ **حدود الأمان بالسلسلة الواحدة:**
-        * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح.
-        * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً.
-        * **العدد الموصى به مثالياً بالسلسلة:** `{rec_string}` ألواح.
-        * **القدرة الكلية المقترحة:** `{rec_total_panels}` لوحاً (`{rec_kw} kW`)
-        """)
+        rec_kw
