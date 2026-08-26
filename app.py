@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("النسخة الشاملة والمحدثة (مع الاستكشاف التلقائي للنماذج)")
+st.caption("النسخة الشاملة والمحدثة (تعتمد على gemini-3.6-flash)")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -160,8 +160,8 @@ def process_extraction_via_sdk(contents: list, key: str) -> dict:
     }
     """
 
-    # فحص واختيار النموذج المتاح تلقائياً لمنع أخطاء 404
-    available_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash", "gemini-pro"]
+    # تم تحديث القائمة لتشمل الإصدار الأحدث والأحدث استقراراً في المقدمة
+    available_models = ["gemini-3.6-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
     selected_model = None
 
     try:
@@ -177,7 +177,7 @@ def process_extraction_via_sdk(contents: list, key: str) -> dict:
         pass
     
     if not selected_model:
-        selected_model = "models/gemini-1.5-flash"
+        selected_model = "models/gemini-3.6-flash"
 
     try:
         model = genai.GenerativeModel(
