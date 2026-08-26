@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("النسخة الشاملة والمحدثة بالكامل (تعتمد على gemini-3.6-flash)")
+st.caption("النسخة الشاملة الكاملة (تعتمد على gemini-3.6-flash)")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -62,6 +62,11 @@ with st.sidebar:
         help="احصل عليه مجاناً من Google AI Studio",
     )
     st.info("💡 المفتاح مطلوب لعمليات التحليل والاستخراج.")
+    
+    st.markdown("---")
+    st.markdown("### 🎛️ تخصيص عدد الألواح يدوياً")
+    custom_panels_mode = st.toggle("تفعيل التخصيص اليدوي لعدد الألواح", value=False)
+    user_panels_count = st.number_input("إجمالي عدد الألواح المطلوبة للنظام:", min_value=1, max_value=100, value=12, step=1)
 
 # 4. طرق البحث
 search_mode = st.radio(
@@ -294,16 +299,29 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
 
         rec_string = math.floor((min_string_safe + max_string_safe) / 2)
         total_strings = mppt_count * strings_per_mppt
-        rec_total_panels = rec_string * total_strings
+        
+        if custom_panels_mode:
+            rec_total_panels = user_panels_count
+        else:
+            rec_total_panels = rec_string * total_strings
+            
         rec_kw = round((rec_total_panels * pmax) / 1000, 2)
 
         st.markdown("---")
         st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
+        
+        # الخيارات الثلاثة التفصيلية (أدنى تركيب، أعلى تركيب، والتركيب المثالي)
+        col_opt1, col_opt2, col_opt3 = st.columns(3)
+        with col_opt1:
+            st.info(f"🔻 **الحد الأدنى للتركيب**\n\n`{min_string_safe}` ألواح بالسلسلة\n(أقل عدد يضمن عمل الـ MPPT)")
+        with col_opt2:
+            st.warning(f"🔺 **الحد الأقصى للتركيب**\n\n`{max_string_safe}` لوحاً بالسلسلة\n(أقصى حد آمن مع برودة الشتاء)")
+        with col_opt3:
+            st.success(f"⭐ **التركيب المثالي**\n\n`{rec_string}` ألواح بالسلسلة\n(الخيار الأفضل للاستقرار)")
+
+        st.markdown("---")
         st.success(f"""
-        🛡️ **حدود الأمان بالسلسلة الواحدة:**
-        * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح (لضمان تجاوز أدنى جهد MPPT مع الأمان).
-        * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً (لعدم تجاوز أقصى جهد MPPT وجهد DC Max مع مراعاة معامل الحرارة الشتوي).
-        * **العدد الموصى به مثالياً بالسلسلة:** `{rec_string}` ألواح.
+        🛡️ **التقرير الشامل لتوزيع النظام:**
         * **عدد مسارات الـ MPPT المتاحة:** `{mppt_count}` مسارات.
         * **عدد السلاسل لكل MPPT:** `{strings_per_mppt}` سلاسل.
         * **إجمالي عدد السلاسل الكلي:** `{total_strings}` سلاسل.
