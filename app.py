@@ -50,7 +50,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر")
-st.caption("يعمل بالمكتبة الحديثة والرسمية لـ Google GenAI لتفادي أخطاء 404 تماماً")
+st.caption("محدث للعمل مع نموذج gemini-3.6-flash الجديد")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -60,7 +60,7 @@ with st.sidebar:
         type="password",
         help="احصل عليه مجاناً من Google AI Studio",
     )
-    st.info("💡 المفتاح مطلوب لعمليات التحليل الاستخراجي بالذكاء الاصطناعي.")
+    st.info("💡 المفتاح مطلوب لعمليات التحليل والاستخراج بالذكاء الاصطناعي.")
 
 # 4. طرق البحث والإدخال
 search_mode = st.radio(
@@ -142,7 +142,6 @@ def clean_json_response(text: str) -> str:
 
 
 def process_extraction(contents: list, key: str) -> dict:
-    # استخدام المكتبة الرسمية الجديدة client
     client = genai.Client(api_key=key.strip())
     
     system_instruction = """
@@ -163,9 +162,9 @@ def process_extraction(contents: list, key: str) -> dict:
     full_contents = [system_instruction] + contents
 
     try:
-        # استخدام النموذج المستقر والمعتمد رسمياً
+        # استخدام النموذج المحدث الجديد حسب طلب النظام
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.6-flash',
             contents=full_contents,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -194,7 +193,7 @@ if st.button("⚡ تحليل واستخراج التقرير"):
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
                     b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
-                    with st.spinner("⚡ جاري معالجة الصور عبر المكتبة الحديثة..."):
+                    with st.spinner("⚡ جاري معالجة الصور عبر النموذج الجديد..."):
                         contents = [prepare_image(p_img), prepare_image(i_img)]
                         if b_img:
                             contents.append(prepare_image(b_img))
@@ -274,17 +273,4 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         if max_string_safe < min_string_safe:
             max_string_safe = min_string_safe
 
-        rec_string = math.floor((min_string_safe + max_string_safe) / 2)
-        total_strings = mppt_count * strings_per_mppt
-        rec_total_panels = rec_string * total_strings
-        rec_kw = round((rec_total_panels * pmax) / 1000, 2)
-
-        st.markdown("---")
-        st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
-        st.success(f"""
-        🛡️ **حدود الأمان بالسلسلة الواحدة:**
-        * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح.
-        * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً.
-        * **العدد الموصى به مثالياً بالسلسلة:** `{rec_string}` ألواح.
-        * **القدرة الكلية المقترحة:** `{rec_total_panels}` لوحاً (`{rec_kw} kW`)
-        """)
+        rec_string = math.floor((min_string_safe + max_string_safe
