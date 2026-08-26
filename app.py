@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("تحليل ذكي يعتمد على النماذج المستقرة لتجنب أخطاء 404 نهائياً")
+st.caption("النسخة المستقرة المخصصة لتجنب أخطاء الحصة المجانية (429)")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -61,7 +61,7 @@ with st.sidebar:
         type="password",
         help="احصل عليه مجاناً من Google AI Studio",
     )
-    st.info("💡 المفتاح مطلوب لعمليات التحليل والاستخراج.")
+    st.info("💡 نصيحة: تأكد من إنشاء مفتاح جديد من مشروع مختلف إذا استمر خطأ 429.")
 
 # 4. طرق البحث
 search_mode = st.radio(
@@ -162,24 +162,19 @@ def process_extraction(contents: list, key: str) -> dict:
 
     all_inputs = [system_instruction] + contents
     
-    # قائمة النماذج المقترحة بالترتيب لتجنب أخطاء 404 نهائياً
-    models_to_try = ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-3.6-flash"]
+    # استخدام النموذج المعتقر للاستخدام المجاني المباشر لتلافي استهلاك الحصة الجديدة للنماذج المدفوعة/الحديثة
+    target_model = "gemini-1.5-flash"
     
-    last_exception = None
-    for model_name in models_to_try:
-        try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(
-                all_inputs,
-                generation_config={"response_mime_type": "application/json", "temperature": 0.1}
-            )
-            cleaned_json = clean_json_response(response.text)
-            return json.loads(cleaned_json)
-        except Exception as e:
-            last_exception = e
-            continue
-            
-    raise Exception(f"تعذر استخراج البيانات بكافة النماذج المتاحة. الخطأ الأخير: {str(last_exception)}")
+    try:
+        model = genai.GenerativeModel(target_model)
+        response = model.generate_content(
+            all_inputs,
+            generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+        )
+        cleaned_json = clean_json_response(response.text)
+        return json.loads(cleaned_json)
+    except Exception as e:
+        raise Exception(f"خطأ في الاتصال بالنموذج ({target_model}): {str(e)}")
 
 
 # 5. زر التحليل الفوري
