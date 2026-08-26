@@ -178,24 +178,19 @@ def is_battery_voltage_compatible(v1, v2):
     if v1 <= 0 or v2 <= 0:
         return True, "تعذر الجزم بالكامل لعدم توفر قراءة دقيقة للجهد."
 
-    # فئة 48V / 51.2V / 51.8V (أنظمة البطاريات المنخفضة الجهد اللامركزية 40V-60V)
     if (40.0 <= v1 <= 60.0) and (40.0 <= v2 <= 60.0):
         return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 48V/51.2V Standard Lithium."
 
-    # فئة 24V (20V - 30V)
     if (20.0 <= v1 <= 30.0) and (20.0 <= v2 <= 30.0):
         return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 24V."
 
-    # فئة 12V (10V - 15V)
     if (10.0 <= v1 <= 15.0) and (10.0 <= v2 <= 15.0):
         return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 12V."
 
-    # فئة الجهد العالي High Voltage (أكبر من 100V)
     if v1 >= 100.0 and v2 >= 100.0:
         if abs(v1 - v2) <= 50.0:
             return True, f"جهد البطارية العالي ({v2}V) متوافق مع نطاق الإنفيرتر HV ({v1}V)."
 
-    # الفارق الصريح المسموح به لأي قيم أخرى
     if abs(v1 - v2) <= 5.0:
         return True, f"الجهد متوافق تقريباً بين الإنفيرتر ({v1}V) والبطارية ({v2}V)."
 
@@ -286,8 +281,11 @@ def extract_via_images(panel_img, inverter_img, battery_img, key):
     """
     contents.append(prompt)
 
-    fast_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-3.5-flash"]
-    for model_name in fast_models:
+    # قائمة النماذج المتاحة والمدعومة للاتصال الآمن
+    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    last_error = None
+
+    for model_name in models_to_try:
         try:
             response = client.models.generate_content(
                 model=model_name,
@@ -297,10 +295,13 @@ def extract_via_images(panel_img, inverter_img, battery_img, key):
                     temperature=0.1,
                 ),
             )
-            return json.loads(response.text)
-        except Exception:
+            if response and response.text:
+                return json.loads(response.text)
+        except Exception as e:
+            last_error = e
             continue
-    raise Exception("عذراً، متعذر الاتصال بالنموذج حالياً.")
+            
+    raise Exception(f"فشل الاتصال بجميع النماذج المتاحة. الخطأ التقني: {last_error}")
 
 
 # 7. دالة الاستخراج عن طريق اسم الموديل (نصياً)
@@ -324,8 +325,10 @@ def extract_via_text(p_text, i_text, b_text, key):
     - إذا لم تطلب بطارية، اجعل قيم external_battery تساوي 0 أو "غير معروف".
     """
 
-    fast_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-3.5-flash"]
-    for model_name in fast_models:
+    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    last_error = None
+
+    for model_name in models_to_try:
         try:
             response = client.models.generate_content(
                 model=model_name,
@@ -335,10 +338,13 @@ def extract_via_text(p_text, i_text, b_text, key):
                     temperature=0.1,
                 ),
             )
-            return json.loads(response.text)
-        except Exception:
+            if response and response.text:
+                return json.loads(response.text)
+        except Exception as e:
+            last_error = e
             continue
-    raise Exception("عذراً، متعذر الاتصال بالنموذج حالياً.")
+            
+    raise Exception(f"فشل الاتصال بجميع النماذج المتاحة بالنص. الخطأ التقني: {last_error}")
 
 
 # 8. زر التفعيل والتحليل
@@ -359,7 +365,7 @@ if st.button("⚡ تحليل سريع واستخراج التقرير والحس
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
                     b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
-                    with st.spinner("⚡ جاري قراءة الملصقات وتحليل الصور..."):
+                    with st.spinner("⚡ جاري قراءة الملصقات وتحليل الصور عبر Gemini..."):
                         res = extract_via_images(p_img, i_img, b_img, api_key)
                 except Exception as e:
                     st.error(f"حدث خطأ أثناء معالجة الصور: {e}")
@@ -500,7 +506,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         st.write(f"- **قدرة البدء اللحظية:** {format_val(s_power, 'VA')}")
         st.write(f"- **مدة التحمل:** {format_val(s_duration, 'ثانية')}")
 
-    # عرض وفحص البطارية الخارجية في حال تم تفعيلها
     if enable_battery or (ext_batt.get("nominal_voltage_v", 0) > 0):
         st.markdown("---")
         st.subheader("🔋 مطابقة البطارية الخارجية المدخلة")
@@ -525,7 +530,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
             st.write(f"- **أقصى تيار شحن:** {format_val(b_max_chg, 'A')}")
             st.write(f"- **أقصى تيار تفريغ:** {format_val(b_max_dischg, 'A')}")
 
-        # فحص توافق جهد البطارية الذكي
         inv_batt_v = safe_float(batt_info.get("nominal_voltage_v"))
         if inv_batt_v > 0 and b_volts > 0:
             is_compat, msg = is_battery_voltage_compatible(inv_batt_v, b_volts)
@@ -534,7 +538,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
             else:
                 st.error(f"❌ **عدم مطابقة الجهد:** {msg}")
 
-    # الحسابات الكهربائية للألواح والإنفيرتر
     if voc == 0 or vmp == 0 or v_max == 0:
         st.error(
             "⚠️ البيانات الكهربائية الأساسية للجهد غير كافية لإجراء"
@@ -633,7 +636,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
             * **لكل String:** ضع `{max_string_safe}` لوحاً على التوالي.
             """)
 
-        # فحص عدد مخصص من الألواح مع تصحيح قيود الأمان
         st.markdown("---")
         st.subheader("🧮 فحص وتوزيع عدد ألواح مخصص")
 
