@@ -1,15 +1,16 @@
 import json
 import math
 import time
-from typing import Any, Dict
+from typing import Any
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from PIL import Image
 import streamlit as st
 
 # 1. ضبط إعدادات الصفحة
 st.set_page_config(
-    page_title="حاسبة توافق الألواح والإنفيرتر والبطاريات الشاملة",
+    page_title="حاسبة توافق الألواح والإنفيرتر الشاملة",
     page_icon="☀️",
     layout="centered",
     initial_sidebar_state="collapsed",
@@ -25,7 +26,6 @@ st.markdown(
         text-align: right;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
-    
     div[data-testid="stMarkdownContainer"] p,
     div[data-testid="stMarkdownContainer"] h1,
     div[data-testid="stMarkdownContainer"] h2,
@@ -35,7 +35,6 @@ st.markdown(
         text-align: right !important;
         direction: rtl !important;
     }
-
     .stButton>button {
         width: 100%;
         background-color: #0284c7;
@@ -50,8 +49,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("تحليل ذكي يعتمد على الكشف التلقائي للنماذج لتجنب أخطاء 404 نهائياً")
+st.title("☀️ حاسبة توافق الألواح والإنفيرتر")
+st.caption("يعمل بالمكتبة الحديثة والرسمية لـ Google GenAI لتفادي أخطاء 404 تماماً")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -61,11 +60,11 @@ with st.sidebar:
         type="password",
         help="احصل عليه مجاناً من Google AI Studio",
     )
-    st.info("💡 المفتاح مطلوب لعمليات التحليل والاستخراج.")
+    st.info("💡 المفتاح مطلوب لعمليات التحليل الاستخراجي بالذكاء الاصطناعي.")
 
-# 4. طرق البحث
+# 4. طرق البحث والإدخال
 search_mode = st.radio(
-    "اختر طريقة إدخال البيانات للبحث والتحليل:",
+    "اختر طريقة إدخال البيانات:",
     ["📸 1. البحث عن طريق الصور (إرفاق الملصقات)", "✍️ 2. البحث عن طريق اسم الشركة والموديل (نصياً)"],
     index=0,
 )
@@ -142,21 +141,9 @@ def clean_json_response(text: str) -> str:
     return text.strip()
 
 
-def get_working_model(api_key: str):
-    """دالة بحث تلقائي ذكية تجلب أي نموذج متاح ويدعم التوليد في حسابك فوراً"""
-    genai.configure(api_key=api_key.strip())
-    try:
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                return m.name
-    except Exception:
-        pass
-    # كاحتياطي أخير
-    return "gemini-1.5-flash"
-
-
 def process_extraction(contents: list, key: str) -> dict:
-    genai.configure(api_key=key.strip())
+    # استخدام المكتبة الرسمية الجديدة client
+    client = genai.Client(api_key=key.strip())
     
     system_instruction = """
     أنت مهندس طاقة شمسية خبير. استخرج المواصفات وأعد الإجابة بصيغة JSON حصراً وحسب الهيكل التالي بدون أي نصوص إضافية:
@@ -173,25 +160,26 @@ def process_extraction(contents: list, key: str) -> dict:
     }
     """
 
-    all_inputs = [system_instruction] + contents
-    
-    # جلب اسم النموذج الفعال ديناميكياً لتجنب أخطاء 404 المزعجة
-    target_model = get_working_model(key)
+    full_contents = [system_instruction] + contents
 
     try:
-        model = genai.GenerativeModel(target_model)
-        response = model.generate_content(
-            all_inputs,
-            generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+        # استخدام النموذج المستقر والمعتمد رسمياً
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=full_contents,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.1
+            ),
         )
         cleaned_json = clean_json_response(response.text)
         return json.loads(cleaned_json)
     except Exception as e:
-        raise Exception(f"تعذر استخراج البيانات باستخدام النموذج ({target_model}): {str(e)}")
+        raise Exception(f"خطأ في الاستخراج: {str(e)}")
 
 
-# 5. زر التحليل الفوري
-if st.button("⚡ تحليل فائق السرعة واستخراج التقرير"):
+# 5. زر التحليل
+if st.button("⚡ تحليل واستخراج التقرير"):
     if not api_key:
         st.error("⚠️ يرجى إدخال مفتاح Gemini API Key في القائمة الجانبية.")
     else:
@@ -200,13 +188,13 @@ if st.button("⚡ تحليل فائق السرعة واستخراج التقري
 
         if "📸" in search_mode:
             if not uploaded_panel or not uploaded_inverter:
-                st.error("⚠️ يرجى تحميل صورة اللوح والإنفيرتر معاً لمتابعة الحسابات.")
+                st.error("⚠️ يرجى تحميل صورة اللوح والإنفيرتر معاً.")
             else:
                 try:
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
                     b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
-                    with st.spinner("⚡ جاري البحث عن النموذج المتاح ومعالجة البيانات..."):
+                    with st.spinner("⚡ جاري معالجة الصور عبر المكتبة الحديثة..."):
                         contents = [prepare_image(p_img), prepare_image(i_img)]
                         if b_img:
                             contents.append(prepare_image(b_img))
@@ -216,10 +204,10 @@ if st.button("⚡ تحليل فائق السرعة واستخراج التقري
                     st.error(f"❌ {e}")
         else:
             if not panel_text_query or not inverter_text_query:
-                st.error("⚠️ يرجى كتابة اسم الشركة والموديل للوح والإنفيرتر معاً.")
+                st.error("⚠️ يرجى كتابة اسم الشركة والموديل للوح والإنفيرتر.")
             else:
                 try:
-                    with st.spinner("🔍 جاري جلب المواصفات والتحليل الفوري..."):
+                    with st.spinner("🔍 جاري جلب المواصفات والتحليل..."):
                         b_prompt = f'والبطارية الخارجية: "{battery_text_query}"' if enable_battery and battery_text_query else ""
                         prompt = f'استخرج مواصفات اللوح: "{panel_text_query}"، والإنفيرتر: "{inverter_text_query}" {b_prompt}.'
                         res = process_extraction([prompt], api_key)
