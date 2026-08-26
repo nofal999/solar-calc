@@ -257,7 +257,7 @@ JSON_STRUCTURE = """
 """
 
 
-# 6. دالة الاستخراج عن طريق الصور (تستعمل النموذج المحدث gemini-3.6-flash)
+# 6. دالة الاستخراج عن طريق الصور
 def extract_via_images(panel_img, inverter_img, battery_img, key):
     client = genai.Client(api_key=key)
     contents = []
@@ -282,7 +282,7 @@ def extract_via_images(panel_img, inverter_img, battery_img, key):
     contents.append(prompt)
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-2.5-flash",
         contents=contents,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -292,7 +292,7 @@ def extract_via_images(panel_img, inverter_img, battery_img, key):
     return json.loads(response.text)
 
 
-# 7. دالة الاستخراج عن طريق اسم الموديل (نصياً) باستخدام gemini-3.6-flash
+# 7. دالة الاستخراج عن طريق اسم الموديل (نصياً)
 def extract_via_text(p_text, i_text, b_text, key):
     client = genai.Client(api_key=key)
 
@@ -307,14 +307,14 @@ def extract_via_text(p_text, i_text, b_text, key):
     استخرج المواصفات الكهربائية القياسية لهذه الموديلات المحددة وعد بتقرير بأسلوب JSON بنفس الهيكل تماماً بدون أي مقدمات:
     {JSON_STRUCTURE}
 
-    تنبيه هام:
+    تنبه هام:
     - أعد أرقاماً فقط للقيم الرقمية (Numbers).
     - إذا كانت المواصفات دقيقة من الكتالوج استخدمها مباشرة، وإن تعذر معرفة قيمة معينة استخدم 0 للرقم و "غير معروف" للنص.
     - إذا لم تطلب بطارية، اجعل قيم external_battery تساوي 0 أو "غير معروف".
     """
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-2.5-flash",
         contents=[prompt],
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -409,6 +409,54 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     ac_info = inv.get("ac_input_output", {})
     surge_info = inv.get("startup_surge", {})
 
+    b_brand = ext_batt.get("brand", "غير معروف")
+    b_model = ext_batt.get("model", "غير معروف")
+    b_chem = ext_batt.get("chemistry", "غير معروف")
+    b_volts = safe_float(ext_batt.get("nominal_voltage_v"))
+    b_ah = safe_float(ext_batt.get("capacity_ah"))
+    b_kwh = safe_float(ext_batt.get("capacity_kwh"))
+    b_max_chg = safe_float(ext_batt.get("max_charge_current_a"))
+    b_max_dischg = safe_float(ext_batt.get("max_discharge_current_a"))
+
+    isc_safe = isc * 1.25
+
+    # 🚨 نظام فحص الأخطاء والتناقضات في المنظومة (System Validation Checks)
+    system_warnings = []
+    system_errors = []
+
+    # 1. فحص توافق نوع الإنفيرتر مع البطاريات الخارجية
+    is_on_grid = i_type.lower() in ["on-grid", "ongrid", "grid-tied"]
+    has_external_battery = b_volts > 0 or (enable_battery and b_model != "غير معروف")
+
+    if is_on_grid and has_external_battery:
+        system_errors.append(
+            "⚠️ **تناقض خطير:** لقد قمت بإدخال/تفعيل بطارية خارجية مع إنفيرتر شبكي (On-Grid). إنفيرترات On-Grid لا تدعم توصيل البطاريات بشكل مباشر لأنها تعمل بالتوازي مع الشبكة فقط (لا تحتوي على شاحن بطاريات داخلي)."
+        )
+
+    # 2. فحص الجهد للإنفيرترات الهجينة إذا وجدت بطارية
+    inv_batt_v = safe_float(batt_info.get("nominal_voltage_v"))
+    if not is_on_grid and has_external_battery and inv_batt_v > 0 and b_volts > 0:
+        is_compat, msg = is_battery_voltage_compatible(inv_batt_v, b_volts)
+        if not is_compat:
+            system_errors.append(f"❌ **خطأ في جهد البطارية:** {msg}")
+
+    # 3. فحص التيار (Clipping)
+    if max_mppt_current > 0 and isc_safe > max_mppt_current:
+        system_warnings.append(
+            f"⚠️ **تحذير تيار (Clipping):** تيار القصر المعدل للوح ({round(isc_safe, 2)} A) أعلى من أقصى تيار لمدخل MPPT ({max_mppt_current} A)."
+        )
+
+    # 4. عرض التنبيهات والأخطاء إن وجدت
+    if system_errors or system_warnings:
+        st.markdown("---")
+        st.subheader("🚨 تقرير الأخطاء والتنبيهات في المنظومة")
+        
+        for err in system_errors:
+            st.error(err)
+            
+        for warn in system_warnings:
+            st.warning(warn)
+
     st.subheader("📌 البيانات التعريفية والموديلات المكتشفة")
     col_p_info, col_i_info = st.columns(2)
 
@@ -487,15 +535,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         st.markdown("---")
         st.subheader("🔋 مطابقة البطارية الخارجية المدخلة")
         
-        b_brand = ext_batt.get("brand", "غير معروف")
-        b_model = ext_batt.get("model", "غير معروف")
-        b_chem = ext_batt.get("chemistry", "غير معروف")
-        b_volts = safe_float(ext_batt.get("nominal_voltage_v"))
-        b_ah = safe_float(ext_batt.get("capacity_ah"))
-        b_kwh = safe_float(ext_batt.get("capacity_kwh"))
-        b_max_chg = safe_float(ext_batt.get("max_charge_current_a"))
-        b_max_dischg = safe_float(ext_batt.get("max_discharge_current_a"))
-
         col_b1, col_b2 = st.columns(2)
         with col_b1:
             st.write(f"**الشركة المصنعة:** {format_val(b_brand)}")
@@ -551,8 +590,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         min_kw = round((min_total_panels * pmax) / 1000, 2)
         rec_kw = round((rec_total_panels * pmax) / 1000, 2)
         max_kw = round((max_total_panels * pmax) / 1000, 2)
-
-        isc_safe = isc * 1.25
 
         st.markdown("---")
         st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
