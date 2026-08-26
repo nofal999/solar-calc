@@ -282,7 +282,7 @@ def extract_via_images(panel_img, inverter_img, battery_img, key):
     contents.append(prompt)
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="models/gemini-3.6-flash",
         contents=contents,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -314,7 +314,7 @@ def extract_via_text(p_text, i_text, b_text, key):
     """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="models/gemini-3.6-flash",
         contents=[prompt],
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
