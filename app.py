@@ -30,7 +30,6 @@ st.markdown("""
 # إعداد مفتاح API الخاص بـ Gemini (إن وجد)
 api_key = os.environ.get("GEMINI_API_KEY")
 if not api_key:
-    # يمكن للمستخدم إدخال المفتاح من الشريط الجانبي إذا لم يكن معرفاً مسبقاً
     pass
 
 st.title("☀️ النظام الذكي لهندسة وتحليل الطاقة الشمسية")
@@ -69,7 +68,7 @@ if input_mode == "استخراج البيانات من الصور (AI)":
             st.image(image, caption="صورة اللوح الشمسي", width=250)
             # نموذج تحليل البيانات هنا إذا توفر المفتاح
         except Exception as e:
-            st.error(f-""حدث خطأ أثناء قراءة الصورة: {e}"")
+            st.error(f"حدث خطأ أثناء قراءة الصورة: {e}")
 else:
     st.markdown("### 🎛️ بيانات الألواح والإنفيرتر اليدوية")
     c1, c2, c3 = st.columns(3)
@@ -108,7 +107,7 @@ if st.button("⚡ تحليل سريع واستخراج التقرير والحس
     r2.metric("أقصى عدد في السلسلة الواحدة (String)", f"{max_panels_in_string} لوح")
     r3.metric("الحد الأدنى لعمل MPPT", f"{min_panels_in_string} لوح")
 
-# --- خيار إدخال عدد الألواح المخصص (تم دمجه بناءً على طلبك) ---
+# --- خيار إدخال عدد الألواح المخصص ---
 st.markdown("---")
 st.subheader("⚙️ إدخال عدد الألواح اليدوي المخصص للفحص")
 user_target_panels = st.number_input(
