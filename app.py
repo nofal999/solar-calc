@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("النسخة الشاملة والمحدثة (تعتمد على gemini-3.6-flash)")
+st.caption("النسخة الشاملة والمستقرة (تعتمد على gemini-1.5-flash)")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -160,24 +160,8 @@ def process_extraction_via_sdk(contents: list, key: str) -> dict:
     }
     """
 
-    # تم تحديث القائمة لتشمل الإصدار الأحدث والأحدث استقراراً في المقدمة
-    available_models = ["gemini-3.6-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
-    selected_model = None
-
-    try:
-        for m in genai.list_models():
-            if "generateContent" in m.supported_generation_methods:
-                for target in available_models:
-                    if target in m.name:
-                        selected_model = m.name
-                        break
-                if selected_model:
-                    break
-    except Exception:
-        pass
-    
-    if not selected_model:
-        selected_model = "models/gemini-3.6-flash"
+    # الاعتماد المباشر والمستقر على نموذج gemini-1.5-flash المتوافق مع الخطط المجانية
+    selected_model = "models/gemini-1.5-flash"
 
     try:
         model = genai.GenerativeModel(
@@ -193,7 +177,7 @@ def process_extraction_via_sdk(contents: list, key: str) -> dict:
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg:
-            raise Exception("تم استنفاد الحد الأقصى للطلبات المجانية (Quota Exceeded). يرجى الانتظار قليلاً.")
+            raise Exception("تم استنفاد الحد الأقصى للطلبات المجانية (Quota Exceeded) لهذا المفتاح. يرجى الانتظار قليلاً أو استخدام مفتاح آخر.")
         else:
             raise Exception(f"خطأ أثناء معالجة الطلب: {error_msg}")
 
