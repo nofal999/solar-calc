@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("تحليل ذكي يعتمد على الكشف التلقائي للنماذج لتجنب أخطاء 404 نهائياً")
+st.caption("تحليل ذكي يعتمد على النماذج المستقرة لتجنب أخطاء 404 نهائياً")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -142,25 +142,6 @@ def clean_json_response(text: str) -> str:
     return text.strip()
 
 
-def get_working_model(api_key: str):
-    """دالة بحث تلقائي ذكية تجلب أول نموذج متاح ويدعم التوليد في حسابك فوراً"""
-    genai.configure(api_key=api_key.strip())
-    try:
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                # تفضيل نماذج flash الحديثة إن وجدت في القائمة
-                if "flash" in m.name.lower():
-                    return m.name
-        # إذا لم يتم العثور على flash، أرجع أول نموذج يدعم التوليد
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                return m.name
-    except Exception:
-        pass
-    # كاحتياطي أخير محدث
-    return "gemini-1.5-flash"
-
-
 def process_extraction(contents: list, key: str) -> dict:
     genai.configure(api_key=key.strip())
     
@@ -180,18 +161,25 @@ def process_extraction(contents: list, key: str) -> dict:
     """
 
     all_inputs = [system_instruction] + contents
-    target_model = get_working_model(key)
-
-    try:
-        model = genai.GenerativeModel(target_model)
-        response = model.generate_content(
-            all_inputs,
-            generation_config={"response_mime_type": "application/json", "temperature": 0.1}
-        )
-        cleaned_json = clean_json_response(response.text)
-        return json.loads(cleaned_json)
-    except Exception as e:
-        raise Exception(f"تعذر استخراج البيانات باستخدام النموذج ({target_model}): {str(e)}")
+    
+    # قائمة النماذج المقترحة بالترتيب لتجنب أخطاء 404 نهائياً
+    models_to_try = ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-3.6-flash"]
+    
+    last_exception = None
+    for model_name in models_to_try:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(
+                all_inputs,
+                generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+            )
+            cleaned_json = clean_json_response(response.text)
+            return json.loads(cleaned_json)
+        except Exception as e:
+            last_exception = e
+            continue
+            
+    raise Exception(f"تعذر استخراج البيانات بكافة النماذج المتاحة. الخطأ الأخير: {str(last_exception)}")
 
 
 # 5. زر التحليل الفوري
@@ -210,7 +198,7 @@ if st.button("⚡ تحليل فائق السرعة واستخراج التقري
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
                     b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
-                    with st.spinner("⚡ جاري البحث عن النموذج المتاح ومعالجة البيانات..."):
+                    with st.spinner("⚡ جاري الاتصال بالنموذج ومعالجة البيانات..."):
                         contents = [prepare_image(p_img), prepare_image(i_img)]
                         if b_img:
                             contents.append(prepare_image(b_img))
