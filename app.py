@@ -51,7 +51,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
-st.caption("نسخة الويب المستقرة (REST API)")
+st.caption("نسخة الويب المستقرة (الأتصال المباشر الآمن)")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -146,8 +146,11 @@ def process_extraction_via_rest(contents: list, key: str) -> dict:
     import base64
     import io
 
-    # استخدام الإصدار المستقر v1 المعتمد حالياً على الويب
-    url = f"[https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=){key.strip()}"
+    # تنظيف المفتاح من أي مسافات مخفية قد تفسد الرابط
+    clean_key = key.strip()
+    
+    # بناء الرابط بشكل آمن ومباشر
+    url = f"[https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=){clean_key}"
     
     system_instruction = """
     أنت مهندس طاقة شمسية خبير. استخرج المواصفات وأعد الإجابة بصيغة JSON حصراً وحسب الهيكل التالي بدون أي نصوص إضافية:
@@ -189,14 +192,18 @@ def process_extraction_via_rest(contents: list, key: str) -> dict:
     }
 
     headers = {"Content-Type": "application/json"}
-    response = requests.post(url, headers=headers, json=payload)
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"فشل الاتصال بالإنترنت أو خطأ في الرابط: {str(e)}")
     
     if response.status_code != 200:
         error_text = response.text
         if "429" in error_text:
             raise Exception("تم استنفاد الحد الأقصى للطلبات المجانية (Quota Exceeded). يرجى الانتظار قليلاً أو إنشاء مفتاح جديد من مشروع جديد.")
         elif "404" in error_text:
-            raise Exception("خطأ 404: النموذج غير متاح. تأكد من تحديث التطبيق (Reboot) ومن صحة مفتاح الـ API.")
+            raise Exception("خطأ 404: النموذج غير متاح أو الرابط غير صحيح.")
         else:
             raise Exception(f"خطأ API ({response.status_code}): {error_text}")
 
