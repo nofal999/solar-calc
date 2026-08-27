@@ -164,7 +164,6 @@ else:
         unk_vmppt_max = st.checkbox("لا أعرف أقصى جهد MPPT", key="unk_vmppt_max")
         m_v_mppt_max = 0.0 if unk_vmppt_max else st.number_input("أقصى جهد MPPT (V)", value=425.0, step=5.0)
         
-        # يبدأ من 1 كحد أدنى، ويمكنك زيادته وإضافة ما تريده يدوياً
         m_mppt_count = st.number_input("عدد مسارات MPPT", min_value=1, max_value=12, value=1, step=1)
         
         st.markdown("##### 📌 حدد عدد السلاسل (Strings) لكل مسار MPPT:")
@@ -199,26 +198,16 @@ else:
 
     manual_data = {
         "panel": {
-            "brand": "إدخال يدوي",
-            "model": "مخصص",
-            "type": "Monocrystalline",
-            "pmax": m_pmax,
-            "voc": m_voc,
-            "vmp": m_vmp,
-            "isc": m_isc,
-            "imp": m_imp
+            "brand": "إدخال يدوي", "model": "مخصص", "type": "Monocrystalline",
+            "pmax": m_pmax, "voc": m_voc, "vmp": m_vmp, "isc": m_isc, "imp": m_imp
         },
         "inverter": {
-            "brand": "إدخال يدوي",
-            "model": "مخصص",
+            "brand": "إدخال يدوي", "model": "مخصص",
             "type": m_i_type if m_i_type != "لا أعرف" else "غير معروف",
             "phase_type": m_phase if m_phase != "لا أعرف" else "غير معروف",
             "voltage_architecture": "Low Voltage",
-            "ac_rated_power_w": m_ac_power,
-            "v_max": m_v_max,
-            "v_mppt_min": m_v_min,
-            "v_mppt_max": m_v_mppt_max,
-            "v_start": m_v_min,
+            "ac_rated_power_w": m_ac_power, "v_max": m_v_max,
+            "v_mppt_min": m_v_min, "v_mppt_max": m_v_mppt_max, "v_start": m_v_min,
             "mppt_count": int(m_mppt_count),
             "strings_per_mppt_list": m_strings_list,
             "strings_per_mppt": m_strings_list[0],
@@ -229,24 +218,16 @@ else:
                 "battery_type": "Lithium/Lead-Acid",
                 "max_charge_current_a": 100.0
             },
-            "ac_input_output": {
-                "nominal_ac_voltage_v": "230V",
-                "frequency_hz": "50Hz"
-            },
-            "startup_surge": {
-                "surge_power_va": m_ac_power * 2 if m_ac_power > 0 else 0.0,
-                "duration_seconds": 5.0
-            }
+            "ac_input_output": {"nominal_ac_voltage_v": "230V", "frequency_hz": "50Hz"},
+            "startup_surge": {"surge_power_va": m_ac_power * 2 if m_ac_power > 0 else 0.0, "duration_seconds": 5.0}
         },
         "external_battery": {
-            "brand": "إدخال يدوي",
-            "model": "مخصص",
+            "brand": "إدخال يدوي", "model": "مخصص",
             "chemistry": m_b_chem if enable_battery else "غير معروف",
             "capacity_ah": m_b_ah if enable_battery else 0.0,
             "capacity_kwh": m_b_kwh if enable_battery else 0.0,
             "nominal_voltage_v": m_b_volts if enable_battery else 0.0,
-            "max_charge_current_a": 50.0,
-            "max_discharge_current_a": 50.0
+            "max_charge_current_a": 50.0, "max_discharge_current_a": 50.0
         } if enable_battery else {
             "brand": "غير معروف", "model": "غير معروف", "chemistry": "غير معروف",
             "capacity_ah": 0.0, "capacity_kwh": 0.0, "nominal_voltage_v": 0.0
@@ -274,13 +255,7 @@ def safe_int(value, default=1):
 
 
 def format_val(value, unit=""):
-    if (
-        value is None
-        or value == 0
-        or value == 0.0
-        or value == "غير محدد"
-        or value == "غير معروف"
-    ):
+    if value is None or value == 0 or value == 0.0 or value == "غير محدد" or value == "غير معروف":
         return "`غير متاح (لا أعرف)`"
     return f"`{value} {unit}`".strip()
 
@@ -294,82 +269,39 @@ def compress_image_for_speed(pil_img, max_dim=1024):
 def is_battery_voltage_compatible(v1, v2):
     if v1 <= 0 or v2 <= 0:
         return True, "تعذر الجزم لعدم توفر قراءة دقيقة لأحد الجهود."
-
     if (40.0 <= v1 <= 60.0) and (40.0 <= v2 <= 60.0):
         return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 48V/51.2V."
-
     if (20.0 <= v1 <= 30.0) and (20.0 <= v2 <= 30.0):
         return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 24V."
-
     if (10.0 <= v1 <= 15.0) and (10.0 <= v2 <= 15.0):
         return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 12V."
-
-    if v1 >= 100.0 and v2 >= 100.0:
-        if abs(v1 - v2) <= 50.0:
-            return True, f"جهد البطارية العالي ({v2}V) متوافق مع نطاق الإنفيرتر HV ({v1}V)."
-
+    if v1 >= 100.0 and v2 >= 100.0 and abs(v1 - v2) <= 50.0:
+        return True, f"جهد البطارية العالي ({v2}V) متوافق مع نطاق الإنفيرتر HV ({v1}V)."
     if abs(v1 - v2) <= 5.0:
         return True, f"الجهد متوافق تقريباً بين الإنفيرتر ({v1}V) والبطارية ({v2}V)."
-
     return False, f"غير متوافق: جهد البطارية ({v2}V) يختلف جوهرياً عن جهد نظام الإنفيرتر ({v1}V)."
 
 
 JSON_STRUCTURE = """
 {
-  "panel": {
-    "brand": "الشركة المصنعة للوح",
-    "model": "اسم وموديل اللوح",
-    "type": "نوع اللوح",
-    "pmax": 0,
-    "voc": 0.0,
-    "vmp": 0.0,
-    "isc": 0.0,
-    "imp": 0.0
-  },
+  "panel": {"brand": "", "model": "", "type": "", "pmax": 0, "voc": 0.0, "vmp": 0.0, "isc": 0.0, "imp": 0.0},
   "inverter": {
-    "brand": "الشركة المصنعة للإنفيرتر",
-    "model": "اسم وموديل الإنفيرتر",
-    "type": "نوع الإنفيرتر",
-    "phase_type": "عدد الفازات",
-    "voltage_architecture": "نوع الجهد المستمر",
-    "ac_rated_power_w": 0.0,
-    "v_max": 0.0,
-    "v_mppt_min": 0.0,
-    "v_mppt_max": 0.0,
-    "v_start": 0.0,
-    "mppt_count": 1,
-    "strings_per_mppt_list": [1],
-    "max_mppt_current": 0.0,
-    "battery": {
-      "supported": true,
-      "nominal_voltage_v": 0.0,
-      "battery_type": "أنواع البطاريات المدعومة",
-      "max_charge_current_a": 0.0
-    },
-    "ac_input_output": {
-      "nominal_ac_voltage_v": "جهد AC الاسمي",
-      "frequency_hz": "التردد"
-    },
-    "startup_surge": {
-      "surge_power_va": 0.0,
-      "duration_seconds": 0.0
-    }
+    "brand": "", "model": "", "type": "", "phase_type": "", "voltage_architecture": "",
+    "ac_rated_power_w": 0.0, "v_max": 0.0, "v_mppt_min": 0.0, "v_mppt_max": 0.0, "v_start": 0.0,
+    "mppt_count": 1, "strings_per_mppt_list": [1], "strings_per_mppt": 1, "max_mppt_current": 0.0,
+    "battery": {"supported": true, "nominal_voltage_v": 0.0, "battery_type": "", "max_charge_current_a": 0.0},
+    "ac_input_output": {"nominal_ac_voltage_v": "", "frequency_hz": ""},
+    "startup_surge": {"surge_power_va": 0.0, "duration_seconds": 0.0}
   },
   "external_battery": {
-    "brand": "الشركة المصنعة للبطارية الخارجية",
-    "model": "اسم وموديل البطارية الخارجية",
-    "chemistry": "نوع الكيمياء",
-    "capacity_ah": 0.0,
-    "capacity_kwh": 0.0,
-    "nominal_voltage_v": 0.0,
-    "max_charge_current_a": 0.0,
-    "max_discharge_current_a": 0.0
+    "brand": "", "model": "", "chemistry": "", "capacity_ah": 0.0, "capacity_kwh": 0.0,
+    "nominal_voltage_v": 0.0, "max_charge_current_a": 0.0, "max_discharge_current_a": 0.0
   }
 }
 """
 
 
-# 6. دوال الاستخراج بالذكاء الاصطناعي
+# 6. دوال الاستخراج بالذكاء الاصطناعي (تم استخدام gemini-1.5-flash لتجنب خطأ الضغط)
 def extract_via_images(panel_img, inverter_img, battery_img, key):
     client = genai.Client(api_key=key)
     contents = [compress_image_for_speed(panel_img), compress_image_for_speed(inverter_img)]
@@ -384,7 +316,7 @@ def extract_via_images(panel_img, inverter_img, battery_img, key):
     contents.append(prompt)
 
     response = client.models.generate_content(
-        model="models/gemini-3.6-flash",
+        model="models/gemini-1.5-flash",
         contents=contents,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -409,7 +341,7 @@ def extract_via_text(p_text, i_text, b_text, key):
     """
 
     response = client.models.generate_content(
-        model="models/gemini-3.6-flash",
+        model="models/gemini-1.5-flash",
         contents=[prompt],
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -444,7 +376,7 @@ if st.button("⚡ بدء الحسابات والتحليل الشامل"):
                         with st.spinner("⚡ جاري قراءة الملصقات وتفكيك البيانات..."):
                             res = extract_via_images(p_img, i_img, b_img, api_key)
                     except Exception as e:
-                        st.error(f"خطأ في معالجة الصور: {e}")
+                        st.error(f"خطأ في معالجة الصور أو ضغط الخادم: {e}")
             else:
                 if not panel_text_query or not inverter_text_query:
                     st.error("⚠️ يرجى كتابة اسم وموديل اللوح والإنفيرتر.")
@@ -568,7 +500,7 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         st.write(f"- أقصى تيار MPPT: {format_val(max_mppt_current, 'A')}")
 
     if voc == 0 or vmp == 0 or v_max == 0:
-        st.warning("⚠️ **تنبيه:** بعض القيم الحرجة (مثل Voc, Vmp أو DC Max) محددة كـ 'لا أعرف' أو غير متوفرة، لذلك تم تخطي حسابات القيود الآمنة للسلسلة لتجنب أي تنبؤ غير دقيق.")
+        st.warning("⚠️ **تنبيه:** بعض القيم الحرجة محددة كـ 'لا أعرف'، لذلك تم تخطي حسابات القيود الآمنة للسلسلة.")
     else:
         v_mppt_min_safe = v_mppt_min * 1.10 if v_mppt_min > 0 else vmp * 2
         min_string_safe = math.ceil(v_mppt_min_safe / vmp) if vmp > 0 else 1
@@ -635,9 +567,9 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
             voc_cold_str = round(per_str * voc * 1.15, 1)
 
             if per_str < min_string_safe:
-                st.error(f"❌ العدد قليل جداً: الجهد `{vmp_str}V` أقل من الحد الأدنى الآمن (`{round(v_mppt_min_safe, 1)}V`).")
+                st.error(f"❌ العدد قليل جداً: الجهد `{vmp_str}V` أقل من الحد الأدنى الآمن.")
             elif per_str > max_string_safe:
-                st.error(f"⚠️ خطر تلف الإنفيرتر: الجهد الشتوي `{voc_cold_str}V` يتجاوز أقصى جهد آمن (`{round(v_max_safe, 1)}V`).")
+                st.error(f"⚠️ خطر تلف الإنفيرتر: الجهد الشتوي `{voc_cold_str}V` يتجاوز أقصى جهد آمن.")
             else:
                 st.success("✅ عدد الألواح وتوزيعها متوافق وآمن تماماً.")
                 
