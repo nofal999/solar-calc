@@ -185,7 +185,7 @@ class SolarCalculator:
         - القدرة المطلوبة للألواح: {data['required_panel_capacity_kw']} كيلوواط
         - العدد المقترح للألواح (قدرة {data['panel_unit_wattage']} واط): {data['estimated_panels_count']} لوح
         - العاكس (Inverter) الموصى به: {data['recommended_inverter_kw']} كيلوواط (مثل Deye أو Solis)
-        - سعة بطاريات الليثيوم المطلوبة (عند جهد {data['system_voltage']} فولت): {data['battery_bank_ah_ah_at_voltage'] if 'battery_bank_ah_at_voltage' in data else data['battery_bank_ah_at_voltage']} أمبير/ساعة
+        - سعة بطاريات الليثيوم المطلوبة (عند جهد {data['system_voltage']} فولت): {data['battery_bank_ah_at_voltage']} أمبير/ساعة
         --------------------------------------------------
         """
         return TextFormatter.render(report)
