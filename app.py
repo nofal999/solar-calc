@@ -85,12 +85,11 @@ with st.sidebar:
 
 # 4. التبديل بين طريقتي البحث
 search_mode = st.radio(
-    " اختر طريقة إدخال البيانات للبحث والتحليل:",
+    "اختر طريقة إدخال البيانات للبحث والتحليل:",
     ["📸 1. البحث عن طريق الصور (إرفاق الملصقات)", "✍️ 2. البحث عن طريق اسم الشركة والموديل (نصياً)"],
     index=0,
 )
 
-# تفعيل أو إيقاف تحليل البطارية الخارجية
 enable_battery = st.toggle("🔋 تفعيل فحص وتحليل بطارية خارجية مخصصة", value=False)
 
 uploaded_panel = None
@@ -173,7 +172,6 @@ def compress_image_for_speed(pil_img, max_dim=1024):
     return img_copy
 
 
-# دالة ذكية للتحقق من توافق فئة جهد البطارية (12V, 24V, 48V/51.2V, HV)
 def is_battery_voltage_compatible(v1, v2):
     if v1 <= 0 or v2 <= 0:
         return True, "تعذر الجزم بالكامل لعدم توفر قراءة دقيقة للجهد."
@@ -197,7 +195,6 @@ def is_battery_voltage_compatible(v1, v2):
     return False, f"غير متوافق: جهد البطارية ({v2}V) يختلف جوهرياً عن جهد نظام الإنفيرتر ({v1}V)."
 
 
-# هيكل الـ JSON الموحد
 JSON_STRUCTURE = """
 {
   "panel": {
@@ -257,27 +254,21 @@ JSON_STRUCTURE = """
 """
 
 
-# 6. دالة الاستخراج عن طريق الصور (تستعمل النموذج gemini-2.5-flash أو gemini-2.5)
+# 6. دالة الاستخراج عن طريق الصور
 def extract_via_images(panel_img, inverter_img, battery_img, key):
     client = genai.Client(api_key=key)
     contents = []
     
-    p_img_small = compress_image_for_speed(panel_img)
-    contents.append(p_img_small)
-    
-    i_img_small = compress_image_for_speed(inverter_img)
-    contents.append(i_img_small)
+    contents.append(compress_image_for_speed(panel_img))
+    contents.append(compress_image_for_speed(inverter_img))
     
     if battery_img:
-        b_img_small = compress_image_for_speed(battery_img)
-        contents.append(b_img_small)
+        contents.append(compress_image_for_speed(battery_img))
 
     prompt = f"""
-    أنت مهندس طاقة شمسية خبير. قم بتحليل الصور المرفقة (لوح شمسي، إنفيرتر، وبطارية إن وجدت) واستخرج البيانات التالية بأسلوب JSON فقط دون أي مقدمات:
+    أنت مهندس طاقة شمسية خبير. قم بتحليل الصور المرفقة واستخرج البيانات التالية بأسلوب JSON فقط دون أي مقدمات:
     {JSON_STRUCTURE}
-    ملاحظة: 
-    - أعد أرقاماً فقط للقيم الرقمية دون وحدات، واستخدم 0 للقيم المفقودة.
-    - إذا لم تكن صورة البطارية مرفقة، اجعل قيم external_battery تساوي 0 أو "غير معروف".
+    ملاحظة: أعد أرقاماً فقط للقيم الرقمية، واستخدم 0 للقيم المفقودة.
     """
     contents.append(prompt)
 
@@ -292,25 +283,19 @@ def extract_via_images(panel_img, inverter_img, battery_img, key):
     return json.loads(response.text)
 
 
-# 7. دالة الاستخراج عن طريق اسم الموديل (نصياً) باستخدام gemini-2.5-flash
+# 7. دالة الاستخراج عن طريق النص
 def extract_via_text(p_text, i_text, b_text, key):
     client = genai.Client(api_key=key)
-
     b_prompt = f'والبطارية الخارجية المطلوبة: "{b_text}"' if b_text else 'لا يوجد بطارية خارجية مخصصة.'
 
     prompt = f"""
-    أنت خبير ومدرك لقواعد بيانات كتالوجات الألواح الشمسية والإنفيرترات والبطاريات (Datasheets).
-    اللوح الشمسي المطلوب: "{p_text}"
-    الإنفيرتر المطلوب: "{i_text}"
+    أنت خبير بقواعد بيانات كتالوجات الألواح الشمسية والإنفيرترات والبطاريات.
+    اللوح الشمسي: "{p_text}"
+    الإنفيرتر: "{i_text}"
     {b_prompt}
 
-    استخرج المواصفات الكهربائية القياسية لهذه الموديلات المحددة وعد بتقرير بأسلوب JSON بنفس الهيكل تماماً بدون أي مقدمات:
+    استخرج المواصفات القياسية وعد بتقرير JSON بنفس الهيكل تماماً بدون أي مقدمات:
     {JSON_STRUCTURE}
-
-    تنبيه هام:
-    - أعد أرقاماً فقط للقيم الرقمية (Numbers).
-    - إذا كانت المواصفات دقيقة من الكتالوج استخدمها مباشرة، وإن تعذر معرفة قيمة معينة استخدم 0 للرقم و "غير معروف" للنص.
-    - إذا لم تطلب بطارية، اجعل قيم external_battery تساوي 0 أو "غير معروف".
     """
 
     response = client.models.generate_content(
@@ -324,7 +309,7 @@ def extract_via_text(p_text, i_text, b_text, key):
     return json.loads(response.text)
 
 
-# 8. زر التفعيل والتحليل
+# 8. زر التحليل
 if st.button("⚡ تحليل سريع واستخراج التقرير والحسابات"):
     if not api_key:
         st.error("⚠️ يرجى إدخال مفتاح Gemini API Key في القائمة الجانبية.")
@@ -334,42 +319,33 @@ if st.button("⚡ تحليل سريع واستخراج التقرير والحس
 
         if "📸" in search_mode:
             if not uploaded_panel or not uploaded_inverter:
-                st.error("⚠️ يرجى تحميل صورة اللوح والإنفيرتر معاً لمتابعة الحسابات.")
+                st.error("⚠️ يرجى تحميل صورة اللوح والإنفيرتر معاً.")
             elif enable_battery and not uploaded_battery:
-                st.error("⚠️ لقد قمت بتفعيل فحص البطارية، يرجى رفع صورة ملصق البطارية أيضاً.")
+                st.error("⚠️ يرجى رفع صورة ملصق البطارية.")
             else:
                 try:
                     p_img = Image.open(uploaded_panel)
                     i_img = Image.open(uploaded_inverter)
                     b_img = Image.open(uploaded_battery) if enable_battery and uploaded_battery else None
-                    with st.spinner("⚡ جاري قراءة الملصقات وتحليل الصور عبر Gemini..."):
+                    with st.spinner("⚡ جاري تحليل الصور عبر Gemini..."):
                         res = extract_via_images(p_img, i_img, b_img, api_key)
                 except Exception as e:
-                    st.error(f"حدث خطأ أثناء معالجة الصور: {e}")
+                    st.error(f"خطأ أثناء معالجة الصور: {e}")
         else:
             if not panel_text_query or not inverter_text_query:
-                st.error(
-                    "⚠️ يرجى كتابة اسم الشركة والموديل للوح والإنفيرتر معاً."
-                )
+                st.error("⚠️ يرجى كتابة اسم الشركة والموديل للوح والإنفيرتر.")
             elif enable_battery and not battery_text_query:
-                st.error("⚠️ لقد قمت بتفعيل فحص البطارية، يرجى كتابة اسم وموديل البطارية أيضاً.")
+                st.error("⚠️ يرجى كتابة اسم وموديل البطارية.")
             else:
                 try:
-                    with st.spinner(
-                        "🔍 جاري البحث عن مواصفات الكتالوج والتحليل..."
-                    ):
-                        res = extract_via_text(
-                            panel_text_query, inverter_text_query, battery_text_query if enable_battery else "", api_key
-                        )
+                    with st.spinner("🔍 جاري البحث والتحليل..."):
+                        res = extract_via_text(panel_text_query, inverter_text_query, battery_text_query if enable_battery else "", api_key)
                 except Exception as e:
-                    st.error(f"حدث خطأ أثناء البحث بالنص: {e}")
+                    st.error(f"خطأ أثناء البحث بالنص: {e}")
 
         if res:
             st.session_state["analysis_result"] = res
-            st.toast(
-                f"🚀 تم التحليل واستخراج المواصفات في {round(time.time() - start_t, 2)} ثوانٍ!",
-                icon="⚡",
-            )
+            st.toast(f"🚀 تم الاستخراج بنجاح في {round(time.time() - start_t, 2)} ثوانٍ!", icon="⚡")
 
 
 # 9. عرض النتائج والحسابات
@@ -381,7 +357,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
 
     p_brand = panel.get("brand", "غير معروف")
     p_model = panel.get("model", "غير معروف")
-    p_part = panel.get("part_number", "غير معروف")
     p_type = panel.get("type", "غير معروف")
 
     pmax = safe_float(panel.get("pmax"))
@@ -392,7 +367,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
 
     i_brand = inv.get("brand", "غير معروف")
     i_model = inv.get("model", "غير معروف")
-    i_part = inv.get("part_number", "غير معروف")
     i_type = inv.get("type", "غير معروف")
     phase_type = inv.get("phase_type", "غير معروف")
     v_arch = inv.get("voltage_architecture", "غير معروف")
@@ -414,113 +388,74 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
 
     with col_p_info:
         st.markdown("### ☀️ اللوح الشمسي")
-        st.write(f"**الشركة المصنعة:** {format_val(p_brand)}")
-        st.write(f"**الموديل / الاسم:** {format_val(p_model)}")
-        st.write(f"**نوع اللوح:** {format_val(p_type)}")
-        st.write(f"- القدرة (Pmax): {format_val(pmax, 'W')}")
-        st.write(f"- جهد الدارة المفتوحة (Voc): {format_val(voc, 'V')}")
-        st.write(f"- الجهد التشغيلي (Vmp): {format_val(vmp, 'V')}")
-        st.write(f"- تيار القصر (Isc): {format_val(isc, 'A')}")
-        st.write(f"- التيار التشغيلي (Imp): {format_val(imp, 'A')}")
+        st.write(f"**الشركة:** {format_val(p_brand)}")
+        st.write(f"**الموديل:** {format_val(p_model)}")
+        st.write(f"**النوع:** {format_val(p_type)}")
+        st.write(f"- Pmax: {format_val(pmax, 'W')}")
+        st.write(f"- Voc: {format_val(voc, 'V')}")
+        st.write(f"- Vmp: {format_val(vmp, 'V')}")
+        st.write(f"- Isc: {format_val(isc, 'A')}")
+        st.write(f"- Imp: {format_val(imp, 'A')}")
 
     with col_i_info:
         st.markdown("### ⚡ الإنفيرتر")
-        st.write(f"**الشركة المصنعة:** {format_val(i_brand)}")
-        st.write(f"**الموديل / الاسم:** {format_val(i_model)}")
-        st.write(f"**نوع الإنفيرتر:** {format_val(i_type)}")
-        st.write(f"**نظام الفازات (Phase):** {format_val(phase_type)}")
-        st.write(f"**معمارية الجهد (DC Architecture):** {format_val(v_arch)}")
+        st.write(f"**الشركة:** {format_val(i_brand)}")
+        st.write(f"**الموديل:** {format_val(i_model)}")
+        st.write(f"**النوع:** {format_val(i_type)}")
+        st.write(f"**الفاز:** {format_val(phase_type)}")
+        st.write(f"**معمارية الجهد:** {format_val(v_arch)}")
         st.write(f"- القدرة الاسمية: {format_val(ac_rated_power, 'W')}")
-        st.write(f"- أقصى جهد مستمر (DC Max): {format_val(v_max, 'V')}")
-        st.write(f"- أدنى جهد MPPT: {format_val(v_mppt_min, 'V')}")
-        st.write(f"- أقصى جهد MPPT: {format_val(v_mppt_max, 'V')}")
-        st.write(
-            f"- عدد MPPT: `{mppt_count}` | عدد Strings/MPPT:"
-            f" `{strings_per_mppt}`"
-        )
-        st.write(f"- أقصى تيار لكل MPPT: {format_val(max_mppt_current, 'A')}")
+        st.write(f"- DC Max: {format_val(v_max, 'V')}")
+        st.write(f"- أدنى MPPT: {format_val(v_mppt_min, 'V')}")
+        st.write(f"- أقصى MPPT: {format_val(v_mppt_max, 'V')}")
+        st.write(f"- عدادات MPPT: `{mppt_count}` | سلاسل/MPPT: `{strings_per_mppt}`")
+        st.write(f"- أقصى تيار MPPT: {format_val(max_mppt_current, 'A')}")
 
     st.markdown("---")
-
-    st.subheader("🔋 مواصفات البطاريات، شبكة AC، وقدرة البدء (Startup)")
+    st.subheader("🔋 مواصفات البطاريات، شبكة AC، وقدرة البدء")
     c_batt, c_ac, c_surge = st.columns(3)
 
     with c_batt:
-        st.markdown("#### 🔋 نظام بطاريات الإنفيرتر")
+        st.markdown("#### 🔋 بطاريات الإنفيرتر")
         batt_supported = batt_info.get("supported", False)
         batt_volts = safe_float(batt_info.get("nominal_voltage_v"))
-        batt_type = batt_info.get("battery_type", "غير معروف")
-        batt_charge = safe_float(batt_info.get("max_charge_current_a"))
-
         if not batt_supported and batt_volts == 0:
-            st.write(
-                "❌ **دعم البطاريات:** `لا يدعم بطاريات (On-Grid / Direct Solar)`"
-            )
+            st.write("❌ لا يدعم بطاريات (On-Grid)")
         else:
-            st.write("- **يدعم بطاريات:** `نعم`")
-            st.write(f"- **جهد البطارية الاسمي:** {format_val(batt_volts, 'V')}")
-            st.write(f"- **أنواع البطاريات:** {format_val(batt_type)}")
-            st.write(f"- **أقصى تيار شحن:** {format_val(batt_charge, 'A')}")
+            st.write("✅ يدعم بطاريات")
+            st.write(f"- الجهد الاسمي: {format_val(batt_volts, 'V')}")
+            st.write(f"- الأنواع: {format_val(batt_info.get('battery_type'))}")
 
     with c_ac:
         st.markdown("#### 🔌 مدخل ومخرج AC")
-        ac_v = ac_info.get("nominal_ac_voltage_v", "غير معروف")
-        ac_freq = ac_info.get("frequency_hz", "غير معروف")
-        ac_in_curr = safe_float(ac_info.get("max_ac_input_current_a"))
-        ac_out_curr = safe_float(ac_info.get("max_ac_output_current_a"))
-
-        st.write(f"- **نظام الفاز:** {format_val(phase_type)}")
-        st.write(f"- **جهد AC الاسمي:** {format_val(ac_v)}")
-        st.write(f"- **التردد:** {format_val(ac_freq)}")
-        st.write(f"- **أقصى تيار مدخل AC:** {format_val(ac_in_curr, 'A')}")
-        st.write(f"- **أقصى تيار مخرج AC:** {format_val(ac_out_curr, 'A')}")
+        st.write(f"- الجهد الاسمي: {format_val(ac_info.get('nominal_ac_voltage_v'))}")
+        st.write(f"- التردد: {format_val(ac_info.get('frequency_hz'))}")
 
     with c_surge:
-        st.markdown("#### 🚀 قدرة البدء (Surge)")
-        s_power = safe_float(surge_info.get("surge_power_va"))
-        s_duration = safe_float(surge_info.get("duration_seconds"))
-
-        st.write(f"- **قدرة البدء اللحظية:** {format_val(s_power, 'VA')}")
-        st.write(f"- **مدة التحمل:** {format_val(s_duration, 'ثانية')}")
+        st.markdown("#### 🚀 قدرة البدء")
+        st.write(f"- Surge VA: {format_val(surge_info.get('surge_power_va'), 'VA')}")
 
     if enable_battery or (ext_batt.get("nominal_voltage_v", 0) > 0):
         st.markdown("---")
-        st.subheader("🔋 مطابقة البطارية الخارجية المدخلة")
-        
-        b_brand = ext_batt.get("brand", "غير معروف")
-        b_model = ext_batt.get("model", "غير معروف")
-        b_chem = ext_batt.get("chemistry", "غير معروف")
+        st.subheader("🔋 مطابقة البطارية الخارجية")
         b_volts = safe_float(ext_batt.get("nominal_voltage_v"))
-        b_ah = safe_float(ext_batt.get("capacity_ah"))
-        b_kwh = safe_float(ext_batt.get("capacity_kwh"))
-        b_max_chg = safe_float(ext_batt.get("max_charge_current_a"))
-        b_max_dischg = safe_float(ext_batt.get("max_discharge_current_a"))
-
         col_b1, col_b2 = st.columns(2)
         with col_b1:
-            st.write(f"**الشركة المصنعة:** {format_val(b_brand)}")
-            st.write(f"**الموديل:** {format_val(b_model)}")
-            st.write(f"**نوع الكيمياء:** {format_val(b_chem)}")
-            st.write(f"- **السعة:** {format_val(b_ah, 'Ah')} ({format_val(b_kwh, 'kWh')})")
+            st.write(f"**الموديل:** {format_val(ext_batt.get('model'))}")
+            st.write(f"- السعة: {format_val(ext_batt.get('capacity_ah'), 'Ah')} ({format_val(ext_batt.get('capacity_kwh'), 'kWh')})")
         with col_b2:
-            st.write(f"- **الجهد الاسمي:** {format_val(b_volts, 'V')}")
-            st.write(f"- **أقصى تيار شحن:** {format_val(b_max_chg, 'A')}")
-            st.write(f"- **أقصى تيار تفريغ:** {format_val(b_max_dischg, 'A')}")
+            st.write(f"- الجهد الاسمي: {format_val(b_volts, 'V')}")
 
         inv_batt_v = safe_float(batt_info.get("nominal_voltage_v"))
         if inv_batt_v > 0 and b_volts > 0:
             is_compat, msg = is_battery_voltage_compatible(inv_batt_v, b_volts)
             if is_compat:
-                st.success(f"✅ **مطابقة الجهد:** {msg}")
+                st.success(f"✅ {msg}")
             else:
-                st.error(f"❌ **عدم مطابقة الجهد:** {msg}")
+                st.error(f"❌ {msg}")
 
     if voc == 0 or vmp == 0 or v_max == 0:
-        st.error(
-            "⚠️ البيانات الكهربائية الأساسية للجهد غير كافية لإجراء"
-            " الحسابات (مثل Voc, Vmp, DC Max). يرجى التأكد من وضوح الصورة أو"
-            " كتابة رقم الموديل بدقة."
-        )
+        st.error("⚠️ البيانات الكهربائية غير كافية لإجراء الحسابات.")
     else:
         v_mppt_min_safe = v_mppt_min * 1.10
         min_string_safe = math.ceil(v_mppt_min_safe / vmp) if vmp > 0 else 1
@@ -529,15 +464,8 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         v_max_safe = v_max * 0.95
 
         max_by_voc = math.floor(v_max_safe / voc_cold_safe) if voc_cold_safe > 0 else 1
-        max_by_mppt = (
-            math.floor(v_mppt_max / vmp)
-            if vmp > 0 and v_mppt_max > 0
-            else max_by_voc
-        )
-        max_string_safe = (
-            min(max_by_voc, max_by_mppt) if max_by_mppt > 0 else max_by_voc
-        )
-
+        max_by_mppt = math.floor(v_mppt_max / vmp) if vmp > 0 and v_mppt_max > 0 else max_by_voc
+        max_string_safe = min(max_by_voc, max_by_mppt) if max_by_mppt > 0 else max_by_voc
         if max_string_safe < min_string_safe:
             max_string_safe = min_string_safe
 
@@ -552,133 +480,51 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         rec_kw = round((rec_total_panels * pmax) / 1000, 2)
         max_kw = round((max_total_panels * pmax) / 1000, 2)
 
-        isc_safe = isc * 1.25
-
         st.markdown("---")
         st.subheader("⚡ نتائج التوصيل وتوزيع السلاسل الآمن")
 
-        if max_mppt_current > 0 and isc_safe > max_mppt_current:
-            st.warning(
-                f"⚠️ **تنبيه مطابقة التيار:** تيار القصر المعدل للوح"
-                f" ({round(isc_safe, 2)} A) أكبر من أقصى تيار يتحمله مدخل MPPT في"
-                f" الإنفيرتر ({max_mppt_current} A). قد يحدث قص للتيار"
-                " (Clipping) عند الذروة."
-            )
-        elif max_mppt_current > 0:
-            st.success(
-                f"✅ **توافق التيار:** تيار اللوح المعدل ({round(isc_safe, 2)} A)"
-                " متوافق تماماً مع مدخل الإنفيرتر."
-            )
-
         st.success(f"""
         🛡️ **حدود الأمان بالسلسلة الواحدة:**
-        * **أقل عدد ألواح آمن بالسلسلة:** `{min_string_safe}` ألواح.
-        * **أكبر عدد ألواح آمن بالسلسلة:** `{max_string_safe}` لوحاً.
-        * **العدد الموصى به مثالياً بالسلسلة:** `{rec_string}` ألواح.
+        * **أقل عدد ألواح آمن:** `{min_string_safe}`
+        * **أكبر عدد ألواح آمن:** `{max_string_safe}`
+        * **العدد الموصى به:** `{rec_string}`
         """)
 
-        st.markdown("### 🔀 تفاصيل التوزيع المقترح من النظام")
-
-        tab1, tab2, tab3 = st.tabs(
-            ["⭐ التوزيع المثالي", "🔴 الحد الأدنى", "🟢 الحد الأقصى"]
-        )
+        tab1, tab2, tab3 = st.tabs(["⭐ التوزيع المثالي", "🔴 الحد الأدنى", "🟢 الحد الأقصى"])
 
         with tab1:
-            st.info(f"""
-            **القدرة الكلية للمنظومة:** `{rec_total_panels}` لوحاً ({rec_kw} kW)
-            * **عدد مدخلات MPPT:** {mppt_count} | **عدد السلاسل لكل MPPT:** {strings_per_mppt}
-            
-            ---
-            📌 **التوزيع الميداني:**
-            * **لكل String:** ضع `{rec_string}` ألواح على التوالي.
-            """)
-
+            st.info(f"القدرة الكلية: `{rec_total_panels}` لوح (`{rec_kw} kW`) | بكل String: `{rec_string}` ألواح.")
         with tab2:
-            st.warning(f"""
-            **القدرة الكلية للمنظومة:** `{min_total_panels}` لوحاً ({min_kw} kW)
-            * **عدد مدخلات MPPT:** {mppt_count} | **عدد السلاسل لكل MPPT:** {strings_per_mppt}
-            
-            ---
-            📌 **التوزيع الميداني:**
-            * **لكل String:** ضع `{min_string_safe}` ألواح على التوالي.
-            """)
-
+            st.warning(f"القدرة الكلية: `{min_total_panels}` لوح (`{min_kw} kW`) | بكل String: `{min_string_safe}` ألواح.")
         with tab3:
-            st.success(f"""
-            **القدرة الكلية للمنظومة:** `{max_total_panels}` لوحاً ({max_kw} kW)
-            * **عدد مدخلات MPPT:** {mppt_count} | **عدد السلاسل لكل MPPT:** {strings_per_mppt}
-            
-            ---
-            📌 **التوزيع الميداني:**
-            * **لكل String:** ضع `{max_string_safe}` لوحاً على التوالي.
-            """)
+            st.success(f"القدرة الكلية: `{max_total_panels}` لوح (`{max_kw} kW`) | بكل String: `{max_string_safe}` ألواح.")
 
         st.markdown("---")
         st.subheader("🧮 فحص وتوزيع عدد ألواح مخصص")
 
         min_allowed_panels = max(1, int(min_total_panels))
         max_allowed_panels = max(min_allowed_panels, int(max_total_panels * 2))
-        
         default_panels_count = int(rec_total_panels) if rec_total_panels >= min_allowed_panels else min_allowed_panels
-        if default_panels_count > max_allowed_panels:
-            default_panels_count = max_allowed_panels
 
         custom_panels_count = st.number_input(
-            "أدخل إجمالي عدد الألواح التي ترغب بتركيبها:",
+            "إجمالي عدد الألواح المراد تركيبها:",
             min_value=min_allowed_panels,
             max_value=max_allowed_panels,
             value=default_panels_count,
             step=1,
-            key="custom_panels_input",
         )
 
         if custom_panels_count > 0:
             custom_kw = round((custom_panels_count * pmax) / 1000, 2)
-            st.markdown(
-                f"#### 📊 النتائج للعدد المدخل ({custom_panels_count} لوحاً):"
-            )
-            st.write(
-                f"- **إجمالي قدرة التوليد:** `{custom_kw} kW` (بقدرة اللوح"
-                f" `{pmax}W`)"
-            )
-
             num_strings_used = min(total_strings, custom_panels_count)
             panels_per_str = custom_panels_count // num_strings_used if num_strings_used > 0 else custom_panels_count
-            remainder = custom_panels_count % num_strings_used if num_strings_used > 0 else 0
-
             vmp_string = round(panels_per_str * vmp, 1)
             voc_string_cold = round(panels_per_str * voc * 1.15, 1)
 
+            st.write(f"- إجمالي القدرة: `{custom_kw} kW`")
             if panels_per_str < min_string_safe:
-                st.error(
-                    f"❌ **العدد المدخل غير آمن (أقل من الحد الأدنى):**\n\n"
-                    f"الجهد التشغيلي المتوقع `{vmp_string}V` أقل من جهد MPPT"
-                    f" الأدنى الآمن (`{round(v_mppt_min_safe,1)}V`)."
-                )
+                st.error(f"❌ العدد المدخل قليل جداً (الجهد `{vmp_string}V` أقل من المسموح).")
             elif panels_per_str > max_string_safe:
-                st.error(
-                    f"⚠️ **العدد المدخل غير آمن (يتجاوز أقصى جهد):**\n\n"
-                    f"جهد الدارة المفتوحة في الشتاء يصل إلى `{voc_string_cold}V`"
-                    " مما يتجاوز الحد الأقصى الآمن المسموح للإنفيرتر"
-                    f" (`{round(v_max_safe,1)}V`). **خطر تلف مدخل"
-                    " الإنفيرتر!**"
-                )
+                st.error(f"⚠️ العدد المدخل يتجاوز أقصى جهد آمن (`{voc_string_cold}V`).")
             else:
-                st.success(
-                    "✅ **العدد المدخل متوافق تماماً وآمن كهربائياً.**"
-                )
-                st.info(
-                    f"""
-                🔌 **خطة التوصيل الميدانية للعدد المدخل ({custom_panels_count} لوحاً):**
-                * **عدد السلاسل (Strings) المستخدمة:** `{num_strings_used}` من أصل `{total_strings}`
-                * **توصيل كل سلسلة:** اربط `{panels_per_str}` ألواح على التوالي لكل سلسلة.
-                * **الجهد المتوقع لكل سلسلة (Vmp):** `{vmp_string} V`
-                * **الجهد الأقصى المتوقع في الشتاء (Voc Cold):** `{voc_string_cold} V`
-                """
-                    + (
-                        f"\n⚠️ **ملاحظة:** يتبقى `{remainder}` ألواح غير"
-                        " موزعة."
-                        if remainder > 0
-                        else ""
-                    )
-                )
+                st.success(f"✅ العدد مدعوم وآمن كهربائياً. اربط `{panels_per_str}` ألواح لكل سلسلة من أصل `{num_strings_used}` سلاسل.")
