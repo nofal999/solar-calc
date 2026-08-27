@@ -8,7 +8,7 @@ import streamlit as st
 
 # 1. ضبط إعدادات الصفحة
 st.set_page_config(
-    page_title="حاسبة توافق الألواح والإنفيرتر الشاملة",
+    page_title="حاسبة توافق الألواح والإنفيرتر المتقدمة",
     page_icon="☀️",
     layout="centered",
     initial_sidebar_state="collapsed",
@@ -60,7 +60,7 @@ st.markdown(
 )
 
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر المتقدمة")
-st.caption("تحكم هندسي دقيق بمداخل الـ MPPT، إيقاف العناصر غير المستخدمة، وتحليل السلاسل الميدانية")
+st.caption("تحكم هندسي ديناميكي بمداخل الـ MPPT غير المحدودة، إيقاف العناصر غير المستخدمة، وتحليل السلاسل")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -86,7 +86,7 @@ with col_opt3:
 search_mode = st.radio(
     "اختر طريقة إدخال البيانات للبحث والتحليل:",
     [
-        "🔢 1. الإدخال اليدوي الكامل والتحكم المستقل بمداخل MPPT",
+        "🔢 1. الإدخال اليدوي الكامل والتحكم الديناميكي بمداخل MPPT",
         "📸 2. البحث عن طريق الصور (إرفاق الملصقات)", 
         "✍️ 3. البحث عن طريق اسم الشركة والموديل (نصياً)"
     ],
@@ -102,13 +102,12 @@ battery_text_query = ""
 
 # متغيرات الإدخال اليدوي
 m_pmax, m_voc, m_vmp, m_isc, m_imp = 550.0, 49.6, 41.5, 14.0, 13.2
-m_ac_power, m_v_max, m_v_mppt_min, m_v_mppt_max, m_mppt_count = 5000.0, 550.0, 125.0, 500.0, 2
+m_ac_power, m_v_max, m_v_mppt_min, m_v_mppt_max = 5000.0, 550.0, 125.0, 500.0
 m_inv_type = "Hybrid"
 m_phase_type = "Single-Phase"
 m_b_volts, m_b_ah, m_b_kwh = 48.0, 100.0, 5.12
 m_b_chem = "LiFePO4"
 
-# تخزين إعدادات الـ MPPT لكل مدخل على حدة
 mppt_configs = []
 
 if "🔢" in search_mode:
@@ -126,7 +125,7 @@ if "🔢" in search_mode:
 
     if enable_inverter:
         st.markdown("---")
-        st.subheader("⚡ خصائص الإنفيرتر والتحكم المستقل بمداخل MPPT")
+        st.subheader("⚡ خصائص الإنفيرتر والتحكم الديناميكي بمداخل MPPT")
         col_i1, col_i2 = st.columns(2)
         with col_i1:
             m_ac_power = st.number_input("القدرة الاسمية للإنفيرتر (AC Watts)", value=5000.0, step=500.0)
@@ -136,16 +135,17 @@ if "🔢" in search_mode:
         with col_i2:
             m_inv_type = st.selectbox("نوع الإنفيرتر", ["Hybrid", "On-Grid", "Off-Grid"])
             m_phase_type = st.selectbox("نظام الفازات", ["Single-Phase", "Three-Phase"])
-            m_mppt_count = st.number_input("عدد مداخل MPPT الكلي", min_value=1, max_value=6, value=2, step=1)
+            # خانة لتحديد عدد مداخل الـ MPPT بحرية (من 1 إلى 8 أو أكثر)
+            m_mppt_count = st.number_input("عدد مداخل MPPT الكلي", min_value=1, max_value=10, value=2, step=1, help="حدد كم عدد مداخل الـ MPPT الموجودة في الإنفيرتر")
 
-        st.markdown("#### 🎛️ تخصيص السلاسل والتيار لكل مدخل MPPT على حدة:")
+        st.markdown("#### 🎛️ تخصيص السلاسل (Strings) والتيار لكل مدخل MPPT على حدة:")
         for i in range(int(m_mppt_count)):
-            st.markdown(f"**مدخل MPPT رقم ({i+1}):**")
+            st.markdown(f"**🔹 إعدادات مدخل MPPT رقم ({i+1}):**")
             c_s1, c_s2 = st.columns(2)
             with c_s1:
-                strings_in_this_mppt = st.number_input(f"عدد السلاسل (Strings) الموصولة بـ MPPT {i+1}", min_value=1, max_value=4, value=1, key=f"str_{i}")
+                strings_in_this_mppt = st.number_input(f"عدد السلاسل الموصولة بـ MPPT {i+1}", min_value=1, max_value=6, value=1, key=f"str_{i}")
             with c_s2:
-                max_curr_this_mppt = st.number_input(f"أقصى تيار مسموح لـ MPPT {i+1} (Amps)", min_value=5.0, max_value=50.0, value=18.0, step=0.5, key=f"curr_{i}")
+                max_curr_this_mppt = st.number_input(f"أقصى تيار مسموح لـ MPPT {i+1} (Amps)", min_value=5.0, max_value=80.0, value=18.0, step=0.5, key=f"curr_{i}")
             mppt_configs.append({"mppt_id": i+1, "strings": strings_in_this_mppt, "max_current": max_curr_this_mppt})
 
     if enable_battery:
@@ -187,15 +187,11 @@ def safe_int(val, default=1):
     try: return int(val)
     except: return default
 
-def format_val(val, unit=""):
-    if val in [None, "", 0, 0.0, "غير محدد"]: return "`غير مفعل / غير موجود`"
-    return f"`{val} {unit}`".strip()
-
 JSON_STRUCTURE = """
 {
   "panel": {"brand": "...", "model": "...", "pmax": 0, "voc": 0.0, "vmp": 0.0, "isc": 0.0, "imp": 0.0},
   "inverter": {
-    "brand": "...", "model": "...", "type": "...", "ac_rated_power_w": 0.0, "v_max": 0.0, "v_mppt_min": 0.0, "v_mppt_max": 0.0, "mppt_count": 1
+    "brand": "...", "model": "...", "type": "...", "ac_rated_power_w": 0.0, "v_max": 0.0, "v_mppt_min": 0.0, "v_mppt_max": 0.0, "mppt_count": 2
   }
 }
 """
@@ -220,7 +216,6 @@ trigger_label = "🔢 تنفيذ الحسابات والتحليل الفوري"
 if st.button(trigger_label):
     res = None
     if "🔢" in search_mode:
-        total_st_count = sum([c["strings"] for c in mppt_configs]) if mppt_configs else 2
         res = {
             "panel": {"pmax": m_pmax if enable_panel else 0, "voc": m_voc if enable_panel else 0, "vmp": m_vmp if enable_panel else 0, "isc": m_isc if enable_panel else 0},
             "inverter": {
@@ -240,9 +235,8 @@ if st.button(trigger_label):
                 p_i = Image.open(uploaded_panel) if uploaded_panel else None
                 i_i = Image.open(uploaded_inverter) if uploaded_inverter else None
                 res = extract_via_ai(p_i, i_i, panel_text_query, inverter_text_query, api_key)
-                # إضافة افتراضية لمداخل MPPT إذا جاءت من الذكاء الاصطناعي
                 if "inverter" in res and "mppt_configs" not in res["inverter"]:
-                    mc = res["inverter"].get("mppt_count", 1)
+                    mc = res["inverter"].get("mppt_count", 2)
                     res["inverter"]["mppt_configs"] = [{"mppt_id": i+1, "strings": 1, "max_current": 18.0} for i in range(mc)]
             except Exception as e:
                 st.error(f"حدث خطأ: {e}")
@@ -301,9 +295,8 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
             
             isc_safe = isc * 1.25
             if isc_safe > m_curr:
-                st.warning(f"⚠️ تنبيه تيار في MPPT {m_id}: تيار اللوح ({isc_safe}A) أعلى من تيار المدخل المسموح ({m_curr}A).")
+                st.warning(f"⚠️ تنبيه تيار في MPPT {m_id}: تيار اللوح المعدل ({isc_safe}A) أعلى من تيار المدخل المسموح ({m_curr}A).")
 
-            # إدخال عدد الألواح لكل سلسلة خاصة بهذا الـ MPPT
             panels_in_this_string = st.number_input(
                 f"عدد الألواح لكل سلسلة في مدخل MPPT {m_id}",
                 min_value=int(min_string_safe),
