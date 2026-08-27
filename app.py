@@ -67,13 +67,68 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# 3. الدوال المساعدة (تم نقلها للأعلى لتكون متاحة في كل الأوقات)
+def safe_float(value, default=0.0):
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_int(value, default=1):
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def format_val(value, unit=""):
+    if (
+        value is None
+        or value == ""
+        or value == 0
+        or value == 0.0
+        or value == "غير محدد"
+        or value == "غير معروف"
+    ):
+        return "`غير موجود في البيانات`"
+    return f"`{value} {unit}`".strip()
+
+
+def compress_image_for_speed(pil_img, max_dim=1024):
+    img_copy = pil_img.copy()
+    img_copy.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+    return img_copy
+
+
+def is_battery_voltage_compatible(v1, v2):
+    if v1 <= 0 or v2 <= 0:
+        return True, "تعذر الجزم بالكامل لعدم توفر قراءة دقيقة للجهد."
+    if (40.0 <= v1 <= 60.0) and (40.0 <= v2 <= 60.0):
+        return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 48V/51.2V Standard Lithium."
+    if (20.0 <= v1 <= 30.0) and (20.0 <= v2 <= 30.0):
+        return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 24V."
+    if (10.0 <= v1 <= 15.0) and (10.0 <= v2 <= 15.0):
+        return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 12V."
+    if v1 >= 100.0 and v2 >= 100.0:
+        if abs(v1 - v2) <= 50.0:
+            return True, f"جهد البطارية العالي ({v2}V) متوافق مع نطاق الإنفيرتر HV ({v1}V)."
+    if abs(v1 - v2) <= 5.0:
+        return True, f"الجهد متوافق تقريباً بين الإنفيرتر ({v1}V) والبطارية ({v2}V)."
+    return False, f"غير متوافق: جهد البطارية ({v2}V) يختلف جوهرياً عن جهد نظام الإنفيرتر ({v1}V)."
+
+
 st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات")
 st.caption(
     "تحليل ذكي متكامل للمواصفات الكهربائية، نوع الجهد، نظام الفازات،"
     " البطاريات الخارجية، وتوزيع السلاسل الميدانية آلياً"
 )
 
-# 3. الشريط الجانبي
+# 4. الشريط الجانبي
 with st.sidebar:
     st.header("⚙️ الإعدادات")
     api_key = st.text_input(
@@ -83,7 +138,7 @@ with st.sidebar:
     )
     st.info("💡 المفتاح اختياري إذا كنت ستستخدم الإدخال اليدوي الكامل.")
 
-# 4. طريقتق إدخال البيانات (تمت إضافة الإدخال اليدوي الكامل)
+# 5. طريقة إدخال البيانات
 search_mode = st.radio(
     " اختر طريقة إدخال البيانات:",
     [
@@ -97,9 +152,117 @@ search_mode = st.radio(
 # تفعيل أو إيقاف تحليل البطارية الخارجية
 enable_battery = st.toggle("🔋 تفعيل فحص وتحليل بطارية خارجية مخصصة", value=True)
 
-# متغيرات التخزين
-res = None
+# هيكل JSON الموحد
+JSON_STRUCTURE = """
+{
+  "panel": {
+    "brand": "الشركة المصنعة للوح",
+    "model": "اسم وموديل اللوح",
+    "part_number": "الرقم التسلسلي أو رقم القطعة للوح إن وجد",
+    "type": "نوع اللوح (Monocrystalline, Polycrystalline, N-Type, etc.)",
+    "pmax": 0,
+    "voc": 0.0,
+    "vmp": 0.0,
+    "isc": 0.0,
+    "imp": 0.0
+  },
+  "inverter": {
+    "brand": "الشركة المصنعة للإنفيرتر",
+    "model": "اسم وموديل الإنفيرتر",
+    "part_number": "الرقم التسلسلي أو رقم الموديل الدقيق للإنفيرتر",
+    "type": "نوع الإنفيرتر (On-Grid, Off-Grid, Hybrid)",
+    "phase_type": "عدد الفازات (Single-Phase أو Three-Phase)",
+    "voltage_architecture": "نوع الجهد المستمر (High Voltage HV أو Low Voltage LV)",
+    "ac_rated_power_w": 0.0,
+    "v_max": 0.0,
+    "v_mppt_min": 0.0,
+    "v_mppt_max": 0.0,
+    "v_start": 0.0,
+    "mppt_count": 1,
+    "strings_per_mppt": 1,
+    "max_mppt_current": 0.0,
+    "battery": {
+      "supported": true,
+      "nominal_voltage_v": 0.0,
+      "battery_type": "أنواع البطاريات المدعومة",
+      "max_charge_current_a": 0.0
+    },
+    "ac_input_output": {
+      "nominal_ac_voltage_v": "جهد AC الاسمي",
+      "frequency_hz": "التردد (50Hz / 60Hz)",
+      "max_ac_input_current_a": 0.0,
+      "max_ac_output_current_a": 0.0
+    },
+    "startup_surge": {
+      "surge_power_va": 0.0,
+      "duration_seconds": 0.0
+    }
+  },
+  "external_battery": {
+    "brand": "الشركة المصنعة للبطارية الخارجية",
+    "model": "اسم وموديل البطارية الخارجية",
+    "chemistry": "نوع الكيمياء (LiFePO4, Gel, Lead-Acid, etc.)",
+    "capacity_ah": 0.0,
+    "capacity_kwh": 0.0,
+    "nominal_voltage_v": 0.0,
+    "max_charge_current_a": 0.0,
+    "max_discharge_current_a": 0.0
+  }
+}
+"""
 
+
+def extract_via_images(panel_img, inverter_img, battery_img, key):
+    client = genai.Client(api_key=key)
+    contents = [compress_image_for_speed(panel_img), compress_image_for_speed(inverter_img)]
+    if battery_img:
+        contents.append(compress_image_for_speed(battery_img))
+    prompt = f"""
+    أنت مهندس طاقة شمسية خبير. قم بتحليل الصور المرفقة واستخرج البيانات التالية بأسلوب JSON فقط دون أي مقدمات:
+    {JSON_STRUCTURE}
+    """
+    contents.append(prompt)
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="models/gemini-2.5-flash",
+                contents=contents,
+                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1),
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise e
+            time.sleep(2 * (attempt + 1))
+
+
+def extract_via_text(p_text, i_text, b_text, key):
+    client = genai.Client(api_key=key)
+    b_prompt = f'والبطارية الخارجية المطلوبة: "{b_text}"' if b_text else 'لا يوجد بطارية خارجية مخصصة.'
+    prompt = f"""
+    اللوح الشمسي: "{p_text}"
+    الإنفيرتر: "{i_text}"
+    {b_prompt}
+    استخرج المواصفات الكهربائية القياسية وعد بتقرير JSON فقط:
+    {JSON_STRUCTURE}
+    """
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="models/gemini-2.5-flash",
+                contents=[prompt],
+                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1),
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise e
+            time.sleep(2 * (attempt + 1))
+
+
+# 6. واجهة الإدخال حسب الخيار المحدد
 if "3. الإدخال اليدوي" in search_mode:
     st.markdown("---")
     st.subheader("✍️ أدخل القيم الفنية يدوياً من الكتالوج (Datasheet)")
@@ -200,162 +363,6 @@ if "3. الإدخال اليدوي" in search_mode:
         st.success("✅ تم تحديث واعتماد البيانات اليدوية بنجاح!")
 
 else:
-    # 5. دوال مساعدة
-    def safe_float(value, default=0.0):
-        if value is None:
-            return default
-        try:
-            return float(value)
-        except (ValueError, TypeError):
-            return default
-
-    def safe_int(value, default=1):
-        if value is None:
-            return default
-        try:
-            return int(value)
-        except (ValueError, TypeError):
-            return default
-
-    def format_val(value, unit=""):
-        if (
-            value is None
-            or value == ""
-            or value == 0
-            or value == 0.0
-            or value == "غير محدد"
-            or value == "غير معروف"
-        ):
-            return "`غير موجود في البيانات`"
-        return f"`{value} {unit}`".strip()
-
-    def compress_image_for_speed(pil_img, max_dim=1024):
-        img_copy = pil_img.copy()
-        img_copy.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
-        return img_copy
-
-    def is_battery_voltage_compatible(v1, v2):
-        if v1 <= 0 or v2 <= 0:
-            return True, "تعذر الجزم بالكامل لعدم توفر قراءة دقيقة للجهد."
-        if (40.0 <= v1 <= 60.0) and (40.0 <= v2 <= 60.0):
-            return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 48V/51.2V Standard Lithium."
-        if (20.0 <= v1 <= 30.0) and (20.0 <= v2 <= 30.0):
-            return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 24V."
-        if (10.0 <= v1 <= 15.0) and (10.0 <= v2 <= 15.0):
-            return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 12V."
-        if v1 >= 100.0 and v2 >= 100.0:
-            if abs(v1 - v2) <= 50.0:
-                return True, f"جهد البطارية العالي ({v2}V) متوافق مع نطاق الإنفيرتر HV ({v1}V)."
-        if abs(v1 - v2) <= 5.0:
-            return True, f"الجهد متوافق تقريباً بين الإنفيرتر ({v1}V) والبطارية ({v2}V)."
-        return False, f"غير متوافق: جهد البطارية ({v2}V) يختلف جوهرياً عن جهد نظام الإنفيرتر ({v1}V)."
-
-    JSON_STRUCTURE = """
-    {
-      "panel": {
-        "brand": "الشركة المصنعة للوح",
-        "model": "اسم وموديل اللوح",
-        "part_number": "الرقم التسلسلي أو رقم القطعة للوح إن وجد",
-        "type": "نوع اللوح (Monocrystalline, Polycrystalline, N-Type, etc.)",
-        "pmax": 0,
-        "voc": 0.0,
-        "vmp": 0.0,
-        "isc": 0.0,
-        "imp": 0.0
-      },
-      "inverter": {
-        "brand": "الشركة المصنعة للإنفيرتر",
-        "model": "اسم وموديل الإنفيرتر",
-        "part_number": "الرقم التسلسلي أو رقم الموديل الدقيق للإنفيرتر",
-        "type": "نوع الإنفيرتر (On-Grid, Off-Grid, Hybrid)",
-        "phase_type": "عدد الفازات (Single-Phase أو Three-Phase)",
-        "voltage_architecture": "نوع الجهد المستمر (High Voltage HV أو Low Voltage LV)",
-        "ac_rated_power_w": 0.0,
-        "v_max": 0.0,
-        "v_mppt_min": 0.0,
-        "v_mppt_max": 0.0,
-        "v_start": 0.0,
-        "mppt_count": 1,
-        "strings_per_mppt": 1,
-        "max_mppt_current": 0.0,
-        "battery": {
-          "supported": true,
-          "nominal_voltage_v": 0.0,
-          "battery_type": "أنواع البطاريات المدعومة",
-          "max_charge_current_a": 0.0
-        },
-        "ac_input_output": {
-          "nominal_ac_voltage_v": "جهد AC الاسمي",
-          "frequency_hz": "التردد (50Hz / 60Hz)",
-          "max_ac_input_current_a": 0.0,
-          "max_ac_output_current_a": 0.0
-        },
-        "startup_surge": {
-          "surge_power_va": 0.0,
-          "duration_seconds": 0.0
-        }
-      },
-      "external_battery": {
-        "brand": "الشركة المصنعة للبطارية الخارجية",
-        "model": "اسم وموديل البطارية الخارجية",
-        "chemistry": "نوع الكيمياء (LiFePO4, Gel, Lead-Acid, etc.)",
-        "capacity_ah": 0.0,
-        "capacity_kwh": 0.0,
-        "nominal_voltage_v": 0.0,
-        "max_charge_current_a": 0.0,
-        "max_discharge_current_a": 0.0
-      }
-    }
-    """
-
-    def extract_via_images(panel_img, inverter_img, battery_img, key):
-        client = genai.Client(api_key=key)
-        contents = [compress_image_for_speed(panel_img), compress_image_for_speed(inverter_img)]
-        if battery_img:
-            contents.append(compress_image_for_speed(battery_img))
-        prompt = f"""
-        أنت مهندس طاقة شمسية خبير. قم بتحليل الصور المرفقة واستخرج البيانات التالية بأسلوب JSON فقط دون أي مقدمات:
-        {JSON_STRUCTURE}
-        """
-        contents.append(prompt)
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                response = client.models.generate_content(
-                    model="models/gemini-2.5-flash",
-                    contents=contents,
-                    config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1),
-                )
-                return json.loads(response.text)
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    raise e
-                time.sleep(2 * (attempt + 1))
-
-    def extract_via_text(p_text, i_text, b_text, key):
-        client = genai.Client(api_key=key)
-        b_prompt = f'والبطارية الخارجية المطلوبة: "{b_text}"' if b_text else 'لا يوجد بطارية خارجية مخصصة.'
-        prompt = f"""
-        اللوح الشمسي: "{p_text}"
-        الإنفيرتر: "{i_text}"
-        {b_prompt}
-        استخرج المواصفات الكهربائية القياسية وعد بتقرير JSON فقط:
-        {JSON_STRUCTURE}
-        """
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                response = client.models.generate_content(
-                    model="models/gemini-2.5-flash",
-                    contents=[prompt],
-                    config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1),
-                )
-                return json.loads(response.text)
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    raise e
-                time.sleep(2 * (attempt + 1))
-
     uploaded_panel = None
     uploaded_inverter = None
     uploaded_battery = None
@@ -386,13 +393,14 @@ else:
         if not api_key:
             st.error("⚠️ يرجى إدخال مفتاح Gemini API Key في القائمة الجانبية.")
         else:
+            res_extracted = None
             if "📸" in search_mode:
                 if not uploaded_panel or not uploaded_inverter:
                     st.error("⚠️ يرجى تحميل صورة اللوح والإنفيرتر.")
                 else:
                     try:
                         with st.spinner("⚡ جاري قراءة الملصقات..."):
-                            res = extract_via_images(Image.open(uploaded_panel), Image.open(uploaded_inverter), Image.open(uploaded_battery) if enable_battery and uploaded_battery else None, api_key)
+                            res_extracted = extract_via_images(Image.open(uploaded_panel), Image.open(uploaded_inverter), Image.open(uploaded_battery) if enable_battery and uploaded_battery else None, api_key)
                     except Exception as e:
                         st.error(f"حدث خطأ: {e}")
             else:
@@ -401,15 +409,15 @@ else:
                 else:
                     try:
                         with st.spinner("🔍 جاري البحث..."):
-                            res = extract_via_text(panel_text_query, inverter_text_query, battery_text_query if enable_battery else "", api_key)
+                            res_extracted = extract_via_text(panel_text_query, inverter_text_query, battery_text_query if enable_battery else "", api_key)
                     except Exception as e:
                         st.error(f"حدث خطأ: {e}")
 
-            if res:
-                st.session_state["analysis_result"] = res
+            if res_extracted:
+                st.session_state["analysis_result"] = res_extracted
                 st.success("✅ تم الاستخراج بنجاح!")
 
-# 6. عرض النتائج والحسابات إذا توفرت النتائج
+# 7. عرض النتائج والحسابات إذا توفرت النتائج في الـ session_state
 if "analysis_result" in st.session_state and st.session_state["analysis_result"]:
     res = st.session_state["analysis_result"]
     panel = res.get("panel", {})
