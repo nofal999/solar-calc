@@ -120,7 +120,7 @@ else:
     with cols[0]:
         panel_text_query = st.text_input(
             "☀️ اسم الشركة والموديل للوح الشمسي:",
-            placeholder="مثال: Jinko Solar JKMM550M-72HL4-V",
+            placeholder="مثال: Jinko Solar JKM640N-66HL4M-BDV-Z2",
         )
     with cols[1]:
         inverter_text_query = st.text_input(
@@ -282,7 +282,7 @@ def extract_via_images(panel_img, inverter_img, battery_img, key):
     contents.append(prompt)
 
     response = client.models.generate_content(
-        model="models/gemini-3.6-flash",
+        model="models/gemini-2.5-flash",
         contents=contents,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -309,12 +309,12 @@ def extract_via_text(p_text, i_text, b_text, key):
 
     تنبه هام:
     - أعد أرقاماً فقط للقيم الرقمية (Numbers).
-    - إذا كانت المواصفات دقيقة من الكتالوج استخدمها مباشرة، وإن تعذر معرفة قيمة معينة استخدم 0 للرقم و "غير معروف" للنص.
+    - التزم بدقة المواصفات الفنية الحقيقية (Datasheet) وتجنب أي تخمين عشوائي للقيم الكهربائية (مثل Voc, Vmp, Pmax).
     - إذا لم تطلب بطارية، اجعل قيم external_battery تساوي 0 أو "غير معروف".
     """
 
     response = client.models.generate_content(
-        model="models/gemini-3.6-flash",
+        model="models/gemini-2.5-flash",
         contents=[prompt],
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
