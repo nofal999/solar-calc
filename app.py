@@ -202,12 +202,23 @@ def extract_via_ai(p_img, i_img, p_txt, i_txt, key):
     if i_img: contents.append(i_img)
     prompt = f"استخرج المواصفات بصيغة JSON فقط حسب هذا الهيكل:\n{JSON_STRUCTURE}\nمعلومات نصية إن وجدت: لوح '{p_txt}', إنفيرتر '{i_txt}'"
     contents.append(prompt)
-    # تم تحديث اسم النموذج إلى الإصدار المدعوم حالياً
-    response = client.models.generate_content(
-        model="models/gemini-3.6-flash", contents=contents,
-        config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
-    )
-    return json.loads(response.text)
+    
+    # محاولة استخدام النموذج مع التعامل التلقائي مع أخطاء الضغط (503) وتجربة موديل بديل إذا لزم الأمر
+    models_to_try = ["models/gemini-3.6-flash", "models/gemini-2.5-flash"]
+    last_exception = None
+    
+    for mdl in models_to_try:
+        try:
+            response = client.models.generate_content(
+                model=mdl, contents=contents,
+                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            last_exception = e
+            continue
+            
+    raise last_exception
 
 
 # 7. زر تنفيذ الحسابات
@@ -239,7 +250,7 @@ if st.button(trigger_label):
                     mc = res["inverter"].get("mppt_count", 2)
                     res["inverter"]["mppt_configs"] = [{"mppt_id": i+1, "strings": 1, "max_current": 18.0} for i in range(mc)]
             except Exception as e:
-                st.error(f"حدث خطأ: {e}")
+                st.error(f"حدث خطأ أثناء الاتصال بالخادم (قد يكون ضغط مؤقت): {e}")
 
     if res:
         st.session_state["analysis_result"] = res
