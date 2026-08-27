@@ -196,7 +196,7 @@ else:
         if enable_battery: battery_text_query = st.text_input("🔋 اسم وموديل البطارية:")
 
 
-# 6. دوال مساعدة
+# 6. دوال مساعدة آمنة
 def safe_float(val, default=0.0):
     try: return float(val)
     except: return default
@@ -204,11 +204,6 @@ def safe_float(val, default=0.0):
 def safe_int(val, default=1):
     try: return int(val)
     except: return default
-
-def format_val(value, unit=""):
-    if value is None or value == "" or value == 0 or value == 0.0 or value == "غير محدد" or value == "غير معروف":
-        return "`غير موجود في البيانات`"
-    return f"`{value} {unit}`".strip()
 
 def compress_image_for_speed(pil_img, max_dim=1024):
     img_copy = pil_img.copy()
@@ -222,7 +217,7 @@ def is_battery_voltage_compatible(v1, v2):
         return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 48V/51.2V Standard Lithium."
     if (20.0 <= v1 <= 30.0) and (20.0 <= v2 <= 30.0):
         return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 24V."
-    if (10.0 <= v1 <= 15.0) and (10.0 <= v2 <= 15.0):
+    if (10.0 <= v1 <= 15.0) and (10.0 <= v1 <= 15.0):
         return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 12V."
     if v1 >= 100.0 and v2 >= 100.0 and abs(v1 - v2) <= 50.0:
         return True, f"جهد البطارية العالي ({v2}V) متوافق مع نطاق الإنفيرتر HV ({v1}V)."
@@ -254,7 +249,6 @@ def extract_via_ai(p_img, i_img, b_img, p_txt, i_txt, b_txt, key):
     prompt = f"استخرج المواصفات بدقة بصيغة JSON فقط حسب هذا الهيكل:\n{JSON_STRUCTURE}\nمعلومات نصية إن وجدت: لوح '{p_txt}', إنفيرتر '{i_txt}', بطارية '{b_txt}'"
     contents.append(prompt)
     
-    # آلية Fallback التلقائية للتعامل مع ضغط الخوادم (503)
     models_to_try = ["models/gemini-3.6-flash", "models/gemini-2.5-flash"]
     last_exception = None
     
@@ -264,12 +258,14 @@ def extract_via_ai(p_img, i_img, b_img, p_txt, i_txt, b_txt, key):
                 model=mdl, contents=contents,
                 config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
             )
-            return json.loads(response.text)
+            parsed_data = json.loads(response.text)
+            if isinstance(parsed_data, dict):
+                return parsed_data
         except Exception as e:
             last_exception = e
             continue
             
-    raise last_exception
+    raise last_exception if last_exception else Exception("تعذر تحليل الاستجابة من الذكاء الاصطناعي.")
 
 # 7. زر تنفيذ الحسابات والتحليل
 trigger_label = "🔢 تنفيذ الحسابات والتحليل الفوري" if "🔢" in search_mode else "⚡ تحليل السلاسل واستخراج التقرير"
@@ -305,23 +301,27 @@ if st.button(trigger_label):
                 
                 with st.spinner("⚡ جاري قراءة البيانات والتحليل عبر الذكاء الاصطناعي..."):
                     res = extract_via_ai(p_i, i_i, b_i, panel_text_query, inverter_text_query, battery_text_query, api_key)
-                    if "inverter" in res and "mppt_configs" not in res["inverter"]:
-                        mc = res["inverter"].get("mppt_count", 2)
-                        res["inverter"]["mppt_configs"] = [{"mppt_id": i+1, "strings": 1, "max_current": 18.0} for i in range(mc)]
+                    if isinstance(res, dict):
+                        if "inverter" in res and isinstance(res["inverter"], dict) and "mppt_configs" not in res["inverter"]:
+                            mc = res["inverter"].get("mppt_count", 2)
+                            res["inverter"]["mppt_configs"] = [{"mppt_id": i+1, "strings": 1, "max_current": 18.0} for i in range(mc)]
+                    else:
+                        res = None
             except Exception as e:
                 st.error(f"حدث خطأ أثناء الاتصال بالخادم (قد يكون ضغط مؤقت 503): {e}")
 
-    if res:
+    if res and isinstance(res, dict):
         st.session_state["analysis_result"] = res
         st.toast("🚀 تمت الحسابات واستخراج التقرير بنجاح!", icon="⚡")
 
 
-# 8. عرض النتائج والتحليل الفردي لكل MPPT مع فحص الأخطاء
-if "analysis_result" in st.session_state and st.session_state["analysis_result"]:
+# 8. عرض النتائج والتحليل الفردي لكل MPPT مع فحص الأخطاء (بشكل آمن تماماً)
+if "analysis_result" in st.session_state and isinstance(st.session_state["analysis_result"], dict):
     res = st.session_state["analysis_result"]
-    panel = res.get("panel", {})
-    inv = res.get("inverter", {})
-    ext_batt = res.get("external_battery", {})
+    
+    panel = res.get("panel") if isinstance(res.get("panel"), dict) else {}
+    inv = res.get("inverter") if isinstance(res.get("inverter"), dict) else {}
+    ext_batt = res.get("external_battery") if isinstance(res.get("external_battery"), dict) else {}
 
     pmax = safe_float(panel.get("pmax"))
     voc = safe_float(panel.get("voc"))
@@ -332,16 +332,23 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     v_max = safe_float(inv.get("v_max"))
     v_mppt_min = safe_float(inv.get("v_mppt_min"))
     v_mppt_max = safe_float(inv.get("v_mppt_max"))
-    mppt_configs_res = inv.get("mppt_configs", [{"mppt_id": 1, "strings": 1, "max_current": 18.0}])
+    
+    mppt_configs_res = inv.get("mppt_configs")
+    if not isinstance(mppt_configs_res, list):
+        mppt_configs_res = [{"mppt_id": 1, "strings": 1, "max_current": 18.0}]
 
     b_volts = safe_float(ext_batt.get("nominal_voltage_v"))
-    inv_batt_v = safe_float(inv.get("battery", {}).get("nominal_voltage_v"))
+    
+    inv_battery_dict = inv.get("battery")
+    inv_batt_v = 0.0
+    if isinstance(inv_battery_dict, dict):
+        inv_batt_v = safe_float(inv_battery_dict.get("nominal_voltage_v"))
 
     # فحص الأخطاء والتناقضات
     system_errors = []
     system_warnings = []
     
-    is_on_grid = i_type.lower() in ["on-grid", "ongrid", "grid-tied"]
+    is_on_grid = str(i_type).lower() in ["on-grid", "ongrid", "grid-tied"]
     has_external_batt = b_volts > 0 or enable_battery
 
     if enable_panel and enable_inverter and is_on_grid and has_external_batt and b_volts > 0:
@@ -383,9 +390,11 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         total_global_panels = 0
 
         for cfg in mppt_configs_res:
+            if not isinstance(cfg, dict):
+                continue
             m_id = cfg.get("mppt_id", 1)
-            str_count = cfg.get("strings", 1)
-            m_curr = cfg.get("max_current", 18.0)
+            str_count = safe_int(cfg.get("strings", 1))
+            m_curr = safe_float(cfg.get("max_current", 18.0))
 
             st.markdown(f"**🔹 مدخل MPPT رقم ({m_id}):** يحتوي على `{str_count}` سلاسل | أقصى تيار مسموح: `{m_curr}A`")
             
@@ -406,7 +415,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
             total_global_panels += branch_panels
             
             vmp_str = round(panels_in_this_string * vmp, 1)
-            voc_str = round(panels_in_this_string * voc * 1.15, 1)
 
             if panels_in_this_string < min_string_safe or panels_in_this_string > max_string_safe:
                 st.error(f"❌ MPPT {m_id} غير آمن كهربائياً (الجهد التشغيلي: {vmp_str}V).")
