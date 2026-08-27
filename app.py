@@ -135,7 +135,6 @@ if "🔢" in search_mode:
         with col_i2:
             m_inv_type = st.selectbox("نوع الإنفيرتر", ["Hybrid", "On-Grid", "Off-Grid"])
             m_phase_type = st.selectbox("نظام الفازات", ["Single-Phase", "Three-Phase"])
-            # خانة لتحديد عدد مداخل الـ MPPT بحرية (من 1 إلى 8 أو أكثر)
             m_mppt_count = st.number_input("عدد مداخل MPPT الكلي", min_value=1, max_value=10, value=2, step=1, help="حدد كم عدد مداخل الـ MPPT الموجودة في الإنفيرتر")
 
         st.markdown("#### 🎛️ تخصيص السلاسل (Strings) والتيار لكل مدخل MPPT على حدة:")
@@ -203,8 +202,9 @@ def extract_via_ai(p_img, i_img, p_txt, i_txt, key):
     if i_img: contents.append(i_img)
     prompt = f"استخرج المواصفات بصيغة JSON فقط حسب هذا الهيكل:\n{JSON_STRUCTURE}\nمعلومات نصية إن وجدت: لوح '{p_txt}', إنفيرتر '{i_txt}'"
     contents.append(prompt)
+    # تم تحديث اسم النموذج إلى الإصدار المدعوم حالياً
     response = client.models.generate_content(
-        model="models/gemini-2.5-flash", contents=contents,
+        model="models/gemini-3.6-flash", contents=contents,
         config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
     )
     return json.loads(response.text)
