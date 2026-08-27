@@ -8,7 +8,7 @@ import streamlit as st
 
 # 1. ضبط إعدادات الصفحة
 st.set_page_config(
-    page_title="حاسبة توافق الألواح والإنفيرتر المتقدمة",
+    page_title="حاسبة توافق الألواح والإنفيرتر والبطاريات الشاملة",
     page_icon="☀️",
     layout="centered",
     initial_sidebar_state="collapsed",
@@ -35,6 +35,19 @@ st.markdown(
         direction: rtl !important;
     }
 
+    button[data-baseweb="tab"] {
+        direction: rtl !important;
+    }
+    div[data-baseweb="tab-list"] {
+        flex-direction: row-reverse !important;
+        justify-content: flex-end !important;
+    }
+
+    section[data-testid="stFileUploadDropzone"] {
+        direction: rtl;
+        text-align: right;
+    }
+
     .stButton>button {
         width: 100%;
         background-color: #0284c7;
@@ -59,8 +72,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("☀️ حاسبة توافق الألواح والإنفيرتر المتقدمة")
-st.caption("تحكم هندسي ديناميكي بمداخل الـ MPPT غير المحدودة، إيقاف العناصر غير المستخدمة، وتحليل السلاسل")
+st.title("☀️ حاسبة توافق الألواح والإنفيرتر والبطاريات الشاملة")
+st.caption("تحكم هندسي ديناميكي، إدخال يدوي أو ذكي، تحليل المداخل المستقلة (MPPT)، وفحص البطاريات الشامل")
 
 # 3. الشريط الجانبي
 with st.sidebar:
@@ -68,12 +81,12 @@ with st.sidebar:
     api_key = st.text_input(
         "مفتاح Gemini API Key:",
         type="password",
-        help="احصل عليه مجاناً من Google AI Studio (مطلوب فقط لخيار الصور والبحث النصي)",
+        help="احصل عليه مجاناً من Google AI Studio (مطلوب لخيارات الصور والبحث النصي الذكي)",
     )
     st.info("💡 المفتاح مطلوب فقط لعمليات الذكاء الاصطناعي (الصور أو البحث النصي).")
 
-# 4. خيارات تجاوز العناصر غير الموجودة
-st.markdown("### 🎛️ خيارات تفعيل / إيقاف الأقسام (تجاوز العناصر غير الموجودة)")
+# 4. خيارات تفعيل / إيقاف الأقسام (تجاوز العناصر غير الموجودة)
+st.markdown("### 🎛️ خيارات تفعيل / إيقاف الأقسام (التجاوز)")
 col_opt1, col_opt2, col_opt3 = st.columns(3)
 with col_opt1:
     enable_panel = st.checkbox("☀️ تفعيل اللوح الشمسي", value=True)
@@ -100,14 +113,17 @@ panel_text_query = ""
 inverter_text_query = ""
 battery_text_query = ""
 
-# متغيرات الإدخال اليدوي
+# متغيرات افتراضية للإدخال اليدوي
 m_pmax, m_voc, m_vmp, m_isc, m_imp = 550.0, 49.6, 41.5, 14.0, 13.2
 m_ac_power, m_v_max, m_v_mppt_min, m_v_mppt_max = 5000.0, 550.0, 125.0, 500.0
 m_inv_type = "Hybrid"
 m_phase_type = "Single-Phase"
+m_v_arch = "Low Voltage (LV)"
+m_max_mppt_curr = 18.0
 m_b_volts, m_b_ah, m_b_kwh = 48.0, 100.0, 5.12
 m_b_chem = "LiFePO4"
-
+m_b_max_chg = 100.0
+m_b_max_dischg = 100.0
 mppt_configs = []
 
 if "🔢" in search_mode:
@@ -135,7 +151,8 @@ if "🔢" in search_mode:
         with col_i2:
             m_inv_type = st.selectbox("نوع الإنفيرتر", ["Hybrid", "On-Grid", "Off-Grid"])
             m_phase_type = st.selectbox("نظام الفازات", ["Single-Phase", "Three-Phase"])
-            m_mppt_count = st.number_input("عدد مداخل MPPT الكلي", min_value=1, max_value=10, value=2, step=1, help="حدد كم عدد مداخل الـ MPPT الموجودة في الإنفيرتر")
+            m_v_arch = st.selectbox("معمارية الجهد", ["Low Voltage (LV)", "High Voltage (HV)"])
+            m_mppt_count = st.number_input("عدد مداخل MPPT الكلي", min_value=1, max_value=10, value=2, step=1)
 
         st.markdown("#### 🎛️ تخصيص السلاسل (Strings) والتيار لكل مدخل MPPT على حدة:")
         for i in range(int(m_mppt_count)):
@@ -154,9 +171,11 @@ if "🔢" in search_mode:
         with col_mb1:
             m_b_volts = st.number_input("الجهد الاسمي للبطارية (Volts)", value=48.0, step=2.4)
             m_b_ah = st.number_input("سعة البطارية (Ah)", value=100.0, step=10.0)
+            m_b_chem = st.text_input("نوع الكيمياء", value="LiFePO4")
         with col_mb2:
             m_b_kwh = st.number_input("الطاقة الإجمالية (kWh)", value=5.12, step=0.5)
-            m_b_chem = st.text_input("نوع الكيمياء", value="LiFePO4")
+            m_b_max_chg = st.number_input("أقصى تيار شحن (Amps)", value=100.0, step=10.0)
+            m_b_max_dischg = st.number_input("أقصى تيار تفريغ (Amps)", value=100.0, step=10.0)
 
 elif "📸" in search_mode:
     cols = st.columns(3)
@@ -186,24 +205,56 @@ def safe_int(val, default=1):
     try: return int(val)
     except: return default
 
+def format_val(value, unit=""):
+    if value is None or value == "" or value == 0 or value == 0.0 or value == "غير محدد" or value == "غير معروف":
+        return "`غير موجود في البيانات`"
+    return f"`{value} {unit}`".strip()
+
+def compress_image_for_speed(pil_img, max_dim=1024):
+    img_copy = pil_img.copy()
+    img_copy.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+    return img_copy
+
+def is_battery_voltage_compatible(v1, v2):
+    if v1 <= 0 or v2 <= 0:
+        return True, "تعذر الجزم بالكامل لعدم توفر قراءة دقيقة للجهد."
+    if (40.0 <= v1 <= 60.0) and (40.0 <= v2 <= 60.0):
+        return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 48V/51.2V Standard Lithium."
+    if (20.0 <= v1 <= 30.0) and (20.0 <= v2 <= 30.0):
+        return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 24V."
+    if (10.0 <= v1 <= 15.0) and (10.0 <= v2 <= 15.0):
+        return True, f"جهد البطارية ({v2}V) متوافق مع نظام الإنفيرتر ({v1}V) ضمن فئة الـ 12V."
+    if v1 >= 100.0 and v2 >= 100.0 and abs(v1 - v2) <= 50.0:
+        return True, f"جهد البطارية العالي ({v2}V) متوافق مع نطاق الإنفيرتر HV ({v1}V)."
+    if abs(v1 - v2) <= 5.0:
+        return True, f"الجهد متوافق تقريباً بين الإنفيرتر ({v1}V) والبطارية ({v2}V)."
+    return False, f"غير متوافق: جهد البطارية ({v2}V) يختلف جوهرياً عن جهد نظام الإنفيرتر ({v1}V)."
+
 JSON_STRUCTURE = """
 {
-  "panel": {"brand": "...", "model": "...", "pmax": 0, "voc": 0.0, "vmp": 0.0, "isc": 0.0, "imp": 0.0},
+  "panel": {"brand": "...", "model": "...", "type": "...", "pmax": 0, "voc": 0.0, "vmp": 0.0, "isc": 0.0, "imp": 0.0},
   "inverter": {
-    "brand": "...", "model": "...", "type": "...", "ac_rated_power_w": 0.0, "v_max": 0.0, "v_mppt_min": 0.0, "v_mppt_max": 0.0, "mppt_count": 2
+    "brand": "...", "model": "...", "type": "...", "phase_type": "...", "voltage_architecture": "...",
+    "ac_rated_power_w": 0.0, "v_max": 0.0, "v_mppt_min": 0.0, "v_mppt_max": 0.0, "mppt_count": 2,
+    "battery": {"supported": true, "nominal_voltage_v": 48.0}
+  },
+  "external_battery": {
+    "brand": "...", "model": "...", "chemistry": "...", "capacity_ah": 0.0, "capacity_kwh": 0.0, "nominal_voltage_v": 0.0, "max_charge_current_a": 0.0, "max_discharge_current_a": 0.0
   }
 }
 """
 
-def extract_via_ai(p_img, i_img, p_txt, i_txt, key):
+def extract_via_ai(p_img, i_img, b_img, p_txt, i_txt, b_txt, key):
     client = genai.Client(api_key=key)
     contents = []
-    if p_img: contents.append(p_img)
-    if i_img: contents.append(i_img)
-    prompt = f"استخرج المواصفات بصيغة JSON فقط حسب هذا الهيكل:\n{JSON_STRUCTURE}\nمعلومات نصية إن وجدت: لوح '{p_txt}', إنفيرتر '{i_txt}'"
+    if p_img: contents.append(compress_image_for_speed(p_img))
+    if i_img: contents.append(compress_image_for_speed(i_img))
+    if b_img: contents.append(compress_image_for_speed(b_img))
+    
+    prompt = f"استخرج المواصفات بدقة بصيغة JSON فقط حسب هذا الهيكل:\n{JSON_STRUCTURE}\nمعلومات نصية إن وجدت: لوح '{p_txt}', إنفيرتر '{i_txt}', بطارية '{b_txt}'"
     contents.append(prompt)
     
-    # محاولة استخدام النموذج مع التعامل التلقائي مع أخطاء الضغط (503) وتجربة موديل بديل إذا لزم الأمر
+    # آلية Fallback التلقائية للتعامل مع ضغط الخوادم (503)
     models_to_try = ["models/gemini-3.6-flash", "models/gemini-2.5-flash"]
     last_exception = None
     
@@ -220,22 +271,27 @@ def extract_via_ai(p_img, i_img, p_txt, i_txt, key):
             
     raise last_exception
 
-
-# 7. زر تنفيذ الحسابات
+# 7. زر تنفيذ الحسابات والتحليل
 trigger_label = "🔢 تنفيذ الحسابات والتحليل الفوري" if "🔢" in search_mode else "⚡ تحليل السلاسل واستخراج التقرير"
 
 if st.button(trigger_label):
     res = None
     if "🔢" in search_mode:
         res = {
-            "panel": {"pmax": m_pmax if enable_panel else 0, "voc": m_voc if enable_panel else 0, "vmp": m_vmp if enable_panel else 0, "isc": m_isc if enable_panel else 0},
+            "panel": {"brand": "Manual", "model": "Custom Panel", "pmax": m_pmax if enable_panel else 0, "voc": m_voc if enable_panel else 0, "vmp": m_vmp if enable_panel else 0, "isc": m_isc if enable_panel else 0, "imp": m_imp if enable_panel else 0},
             "inverter": {
+                "brand": "Manual", "model": "Custom Inverter", "type": m_inv_type, "phase_type": m_phase_type, "voltage_architecture": m_v_arch,
                 "ac_rated_power_w": m_ac_power if enable_inverter else 0,
                 "v_max": m_v_max if enable_inverter else 0,
                 "v_mppt_min": m_v_mppt_min if enable_inverter else 0,
                 "v_mppt_max": m_v_mppt_max if enable_inverter else 0,
                 "mppt_count": int(m_mppt_count) if enable_inverter else 1,
-                "mppt_configs": mppt_configs if mppt_configs else [{"mppt_id": 1, "strings": 1, "max_current": 18.0}]
+                "mppt_configs": mppt_configs if mppt_configs else [{"mppt_id": 1, "strings": 1, "max_current": 18.0}],
+                "battery": {"supported": True, "nominal_voltage_v": m_b_volts if enable_battery else 48.0}
+            },
+            "external_battery": {
+                "brand": "Manual", "model": "Custom Battery", "chemistry": m_b_chem, "capacity_ah": m_b_ah, "capacity_kwh": m_b_kwh,
+                "nominal_voltage_v": m_b_volts if enable_battery else 0.0, "max_charge_current_a": m_b_max_chg, "max_discharge_current_a": m_b_max_dischg
             }
         }
     else:
@@ -243,35 +299,64 @@ if st.button(trigger_label):
             st.error("⚠️ يرجى إدخال مفتاح Gemini API Key في القائمة الجانبية.")
         else:
             try:
-                p_i = Image.open(uploaded_panel) if uploaded_panel else None
-                i_i = Image.open(uploaded_inverter) if uploaded_inverter else None
-                res = extract_via_ai(p_i, i_i, panel_text_query, inverter_text_query, api_key)
-                if "inverter" in res and "mppt_configs" not in res["inverter"]:
-                    mc = res["inverter"].get("mppt_count", 2)
-                    res["inverter"]["mppt_configs"] = [{"mppt_id": i+1, "strings": 1, "max_current": 18.0} for i in range(mc)]
+                p_i = Image.open(uploaded_panel) if (enable_panel and uploaded_panel) else None
+                i_i = Image.open(uploaded_inverter) if (enable_inverter and uploaded_inverter) else None
+                b_i = Image.open(uploaded_battery) if (enable_battery and uploaded_battery) else None
+                
+                with st.spinner("⚡ جاري قراءة البيانات والتحليل عبر الذكاء الاصطناعي..."):
+                    res = extract_via_ai(p_i, i_i, b_i, panel_text_query, inverter_text_query, battery_text_query, api_key)
+                    if "inverter" in res and "mppt_configs" not in res["inverter"]:
+                        mc = res["inverter"].get("mppt_count", 2)
+                        res["inverter"]["mppt_configs"] = [{"mppt_id": i+1, "strings": 1, "max_current": 18.0} for i in range(mc)]
             except Exception as e:
-                st.error(f"حدث خطأ أثناء الاتصال بالخادم (قد يكون ضغط مؤقت): {e}")
+                st.error(f"حدث خطأ أثناء الاتصال بالخادم (قد يكون ضغط مؤقت 503): {e}")
 
     if res:
         st.session_state["analysis_result"] = res
-        st.toast("🚀 تمت الحسابات بنجاح!", icon="⚡")
+        st.toast("🚀 تمت الحسابات واستخراج التقرير بنجاح!", icon="⚡")
 
 
-# 8. عرض النتائج والتحليل الفردي لكل MPPT
+# 8. عرض النتائج والتحليل الفردي لكل MPPT مع فحص الأخطاء
 if "analysis_result" in st.session_state and st.session_state["analysis_result"]:
     res = st.session_state["analysis_result"]
     panel = res.get("panel", {})
     inv = res.get("inverter", {})
+    ext_batt = res.get("external_battery", {})
 
     pmax = safe_float(panel.get("pmax"))
     voc = safe_float(panel.get("voc"))
     vmp = safe_float(panel.get("vmp"))
     isc = safe_float(panel.get("isc"))
 
+    i_type = inv.get("type", "Hybrid")
     v_max = safe_float(inv.get("v_max"))
     v_mppt_min = safe_float(inv.get("v_mppt_min"))
     v_mppt_max = safe_float(inv.get("v_mppt_max"))
     mppt_configs_res = inv.get("mppt_configs", [{"mppt_id": 1, "strings": 1, "max_current": 18.0}])
+
+    b_volts = safe_float(ext_batt.get("nominal_voltage_v"))
+    inv_batt_v = safe_float(inv.get("battery", {}).get("nominal_voltage_v"))
+
+    # فحص الأخطاء والتناقضات
+    system_errors = []
+    system_warnings = []
+    
+    is_on_grid = i_type.lower() in ["on-grid", "ongrid", "grid-tied"]
+    has_external_batt = b_volts > 0 or enable_battery
+
+    if enable_panel and enable_inverter and is_on_grid and has_external_batt and b_volts > 0:
+        system_errors.append("⚠️ **تناقض في المنظومة:** تم إدخال بطارية مع إنفيرتر شبكي (On-Grid) لا يدعم البطاريات أصلاً.")
+
+    if not is_on_grid and has_external_batt and inv_batt_v > 0 and b_volts > 0:
+        is_compat, msg = is_battery_voltage_compatible(inv_batt_v, b_volts)
+        if not is_compat:
+            system_errors.append(f"❌ **خطأ في جهد البطارية:** {msg}")
+
+    if system_errors or system_warnings:
+        st.markdown("---")
+        st.subheader("🚨 تقرير الأخطاء والتنبيهات الهندسية")
+        for err in system_errors: st.error(err)
+        for warn in system_warnings: st.warning(warn)
 
     st.markdown("---")
     st.subheader("📌 نتائج تحليل الجهد والسلاسل المستقلة لكل MPPT")
@@ -306,7 +391,7 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
             
             isc_safe = isc * 1.25
             if isc_safe > m_curr:
-                st.warning(f"⚠️ تنبيه تيار في MPPT {m_id}: تيار اللوح المعدل ({isc_safe}A) أعلى من تيار المدخل المسموح ({m_curr}A).")
+                st.warning(f"⚠️ تنبيه تيار (Clipping) في MPPT {m_id}: تيار اللوح المعدل ({isc_safe}A) أعلى من تيار المدخل المسموح ({m_curr}A).")
 
             panels_in_this_string = st.number_input(
                 f"عدد الألواح لكل سلسلة في مدخل MPPT {m_id}",
