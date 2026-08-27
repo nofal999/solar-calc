@@ -164,18 +164,14 @@ else:
         unk_vmppt_max = st.checkbox("لا أعرف أقصى جهد MPPT", key="unk_vmppt_max")
         m_v_mppt_max = 0.0 if unk_vmppt_max else st.number_input("أقصى جهد MPPT (V)", value=425.0, step=5.0)
         
-        # تحكم حر تماماً بعدد مسارات الـ MPPT وتخصيص الستريجات لكل مسار
-        unk_mppt_count = st.checkbox("لا أعرف عدد مسارات MPPT (تلقائي 1)", key="unk_mppt_count")
-        if unk_mppt_count:
-            m_mppt_count = 1
-            m_strings_list = [1]
-        else:
-            m_mppt_count = st.number_input("عدد مسارات MPPT", min_value=1, max_value=6, value=2, step=1)
-            st.markdown("##### 📌 حدد عدد السلاسل (Strings) لكل مسار MPPT:")
-            m_strings_list = []
-            for i in range(int(m_mppt_count)):
-                s_val = st.number_input(f"عدد الستريجات في MPPT {i+1}", min_value=1, max_value=6, value=1, step=1, key=f"manual_mppt_str_{i+1}")
-                m_strings_list.append(int(s_val))
+        # يبدأ من 1 كحد أدنى، ويمكنك زيادته وإضافة ما تريده يدوياً
+        m_mppt_count = st.number_input("عدد مسارات MPPT", min_value=1, max_value=12, value=1, step=1)
+        
+        st.markdown("##### 📌 حدد عدد السلاسل (Strings) لكل مسار MPPT:")
+        m_strings_list = []
+        for i in range(int(m_mppt_count)):
+            s_val = st.number_input(f"عدد الستريجات في MPPT {i+1}", min_value=1, max_value=6, value=1, step=1, key=f"manual_mppt_str_{i+1}")
+            m_strings_list.append(int(s_val))
                 
         total_strings_sum = sum(m_strings_list)
         st.info(f"🔌 إجمالي عدد الستريجات (Strings) في الإنفيرتر = {total_strings_sum}")
@@ -201,7 +197,6 @@ else:
 
             m_b_chem = st.text_input("نوع الكيمياء", value="LiFePO4")
 
-    # بناء هيكل البيانات اليدوي مع القيم المجهولة
     manual_data = {
         "panel": {
             "brand": "إدخال يدوي",
@@ -283,7 +278,6 @@ def format_val(value, unit=""):
         value is None
         or value == 0
         or value == 0.0
-        or value == 0
         or value == "غير محدد"
         or value == "غير معروف"
     ):
@@ -573,7 +567,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         st.write(f"- توزيع الستريجات: " + " | ".join(str_desc_parts))
         st.write(f"- أقصى تيار MPPT: {format_val(max_mppt_current, 'A')}")
 
-    # الشرط الحاسم للتحقق من وجود الحد الأدنى للعمليات الحسابية
     if voc == 0 or vmp == 0 or v_max == 0:
         st.warning("⚠️ **تنبيه:** بعض القيم الحرجة (مثل Voc, Vmp أو DC Max) محددة كـ 'لا أعرف' أو غير متوفرة، لذلك تم تخطي حسابات القيود الآمنة للسلسلة لتجنب أي تنبؤ غير دقيق.")
     else:
