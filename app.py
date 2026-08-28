@@ -81,12 +81,16 @@ with st.sidebar:
         type="password",
         help="احصل عليه مجاناً من Google AI Studio",
     )
-    st.info("💡 المفتاح مطلوب لعمليات التحليل والاستخراج.")
+    st.info("💡 مفتاح Gemini مطلوب لوضعي الصور والبحث النصي فقط. الإدخال اليدوي لا يحتاج مفتاحاً.")
 
 # 4. التبديل بين طريقتي البحث
 search_mode = st.radio(
-    " اختر طريقة إدخال البيانات للبحث والتحليل:",
-    ["📸 1. البحث عن طريق الصور (إرفاق الملصقات)", "✍️ 2. البحث عن طريق اسم الشركة والموديل (نصياً)"],
+    "اختر طريقة إدخال البيانات:",
+    [
+        "📸 1. البحث عن طريق الصور (إرفاق الملصقات)",
+        "✍️ 2. البحث عن طريق اسم الشركة والموديل (نصياً)",
+        "🧮 3. إدخال المواصفات يدوياً",
+    ],
     index=0,
 )
 
@@ -99,41 +103,92 @@ uploaded_battery = None
 panel_text_query = ""
 inverter_text_query = ""
 battery_text_query = ""
+manual_data = {"panel": {}, "inverter": {}, "external_battery": {}}
 
 if "📸" in search_mode:
     cols = st.columns(3 if enable_battery else 2)
     with cols[0]:
-        uploaded_panel = st.file_uploader(
-            "📸 صورة ملصق اللوح الشمسي", type=["jpg", "jpeg", "png"]
-        )
+        uploaded_panel = st.file_uploader("📸 صورة ملصق اللوح الشمسي", type=["jpg", "jpeg", "png"])
     with cols[1]:
-        uploaded_inverter = st.file_uploader(
-            "📸 صورة ملصق الإنفيرتر", type=["jpg", "jpeg", "png"]
-        )
+        uploaded_inverter = st.file_uploader("📸 صورة ملصق الإنفيرتر", type=["jpg", "jpeg", "png"])
     if enable_battery:
         with cols[2]:
-            uploaded_battery = st.file_uploader(
-                "📸 صورة ملصق البطارية", type=["jpg", "jpeg", "png"]
-            )
-else:
+            uploaded_battery = st.file_uploader("📸 صورة ملصق البطارية", type=["jpg", "jpeg", "png"])
+
+elif "✍️" in search_mode:
     cols = st.columns(3 if enable_battery else 2)
     with cols[0]:
-        panel_text_query = st.text_input(
-            "☀️ اسم الشركة والموديل للوح الشمسي:",
-            placeholder="مثال: Jinko Solar JKMM550M-72HL4-V",
-        )
+        panel_text_query = st.text_input("☀️ اسم الشركة والموديل للوح الشمسي:", placeholder="مثال: Jinko Solar 550W")
     with cols[1]:
-        inverter_text_query = st.text_input(
-            "⚡ اسم الشركة والموديل للإنفيرتر:",
-            placeholder="مثال: Deye SUN-5K-SG04LP1-EU أو Growatt 5000ES",
-        )
+        inverter_text_query = st.text_input("⚡ اسم الشركة والموديل للإنفيرتر:", placeholder="مثال: Deye 5K")
     if enable_battery:
         with cols[2]:
-            battery_text_query = st.text_input(
-                "🔋 اسم الشركة والموديل للبطارية:",
-                placeholder="مثال: Felicity solar LPBF48300 أو Pylontech US3000C",
-            )
+            battery_text_query = st.text_input("🔋 اسم الشركة والموديل للبطارية:", placeholder="مثال: Pylontech US3000C")
 
+else:
+    st.info("🧮 الإدخال اليدوي لا يحتاج Gemini API Key.")
+    st.markdown("### ☀️ مواصفات اللوح الشمسي")
+    c = st.columns(5)
+    m_pmax = c[0].number_input("Pmax (W)", min_value=0.0, value=550.0, step=10.0, key="m_pmax")
+    m_voc = c[1].number_input("Voc (V)", min_value=0.0, value=49.5, step=0.1, key="m_voc")
+    m_vmp = c[2].number_input("Vmp (V)", min_value=0.0, value=41.5, step=0.1, key="m_vmp")
+    m_isc = c[3].number_input("Isc (A)", min_value=0.0, value=14.0, step=0.1, key="m_isc")
+    m_imp = c[4].number_input("Imp (A)", min_value=0.0, value=13.3, step=0.1, key="m_imp")
+    m_p_brand = st.text_input("شركة اللوح", key="m_p_brand")
+    m_p_model = st.text_input("موديل اللوح", key="m_p_model")
+
+    st.markdown("### ⚡ مواصفات الإنفيرتر")
+    c = st.columns(4)
+    m_ac = c[0].number_input("AC Rated Power (W)", min_value=0.0, value=5000.0, step=100.0, key="m_ac")
+    m_dcmax = c[1].number_input("Max DC Voltage (V)", min_value=0.0, value=500.0, step=10.0, key="m_dcmax")
+    m_mpptmin = c[2].number_input("MPPT Min (V)", min_value=0.0, value=150.0, step=5.0, key="m_mpptmin")
+    m_mpptmax = c[3].number_input("MPPT Max (V)", min_value=0.0, value=425.0, step=5.0, key="m_mpptmax")
+
+    c = st.columns(4)
+    m_mpptcurrent = c[0].number_input("Max Current / MPPT (A)", min_value=0.0, value=13.0, step=0.5, key="m_mpptcurrent")
+    m_phase = c[1].selectbox("Phase", ["Single-Phase", "Three-Phase"], key="m_phase")
+    m_type = c[2].selectbox("Inverter Type", ["Hybrid", "Off-Grid", "On-Grid"], key="m_type")
+    m_arch = c[3].selectbox("Battery Architecture", ["Low Voltage LV", "High Voltage HV", "غير معروف"], key="m_arch")
+    m_i_brand = st.text_input("شركة الإنفيرتر", key="m_i_brand")
+    m_i_model = st.text_input("موديل الإنفيرتر", key="m_i_model")
+
+    st.markdown("### 🔀 إعداد MPPT و Strings")
+    st.caption("الحد الأدنى MPPT1 + String1. يمكنك إضافة MPPT2 وMPPT3، ولكل MPPT عدد Strings مستقل.")
+
+    s1 = st.number_input("MPPT 1 — عدد Strings", min_value=1, max_value=4, value=1, step=1, key="manual_s1")
+    use2 = st.checkbox("➕ إضافة MPPT 2", key="manual_use2")
+    s2 = st.number_input("MPPT 2 — عدد Strings", min_value=1, max_value=4, value=1, step=1, key="manual_s2") if use2 else 0
+    use3 = st.checkbox("➕ إضافة MPPT 3", key="manual_use3")
+    s3 = st.number_input("MPPT 3 — عدد Strings", min_value=1, max_value=4, value=1, step=1, key="manual_s3") if use3 else 0
+    mppt_cfg = [s1] + ([s2] if use2 else []) + ([s3] if use3 else [])
+
+    st.markdown("### 🔋 البطارية الخارجية — اختياري")
+    c = st.columns(4)
+    m_bv = c[0].number_input("Nominal Battery Voltage (V)", min_value=0.0, value=51.2, step=0.1, key="m_bv")
+    m_bah = c[1].number_input("Capacity (Ah)", min_value=0.0, value=0.0, step=10.0, key="m_bah")
+    m_bkwh = c[2].number_input("Capacity (kWh)", min_value=0.0, value=0.0, step=0.1, key="m_bkwh")
+    m_bdis = c[3].number_input("Max Discharge (A)", min_value=0.0, value=0.0, step=5.0, key="m_bdis")
+
+    manual_data = {
+        "panel": {"brand": m_p_brand or "إدخال يدوي", "model": m_p_model or "Manual Panel",
+                  "part_number": "غير معروف", "type": "Manual",
+                  "pmax": m_pmax, "voc": m_voc, "vmp": m_vmp, "isc": m_isc, "imp": m_imp},
+        "inverter": {"brand": m_i_brand or "إدخال يدوي", "model": m_i_model or "Manual Inverter",
+                     "part_number": "غير معروف", "type": m_type, "phase_type": m_phase,
+                     "voltage_architecture": m_arch, "ac_rated_power_w": m_ac,
+                     "v_max": m_dcmax, "v_mppt_min": m_mpptmin, "v_mppt_max": m_mpptmax,
+                     "v_start": 0, "mppt_count": len(mppt_cfg),
+                     "strings_per_mppt": max(mppt_cfg), "mppt_strings_config": mppt_cfg,
+                     "max_mppt_current": m_mpptcurrent,
+                     "battery": {"supported": m_type != "On-Grid", "nominal_voltage_v": m_bv if m_type != "On-Grid" else 0,
+                                 "battery_type": "Manual", "max_charge_current_a": 0},
+                     "ac_input_output": {"nominal_ac_voltage_v": "يدوي", "frequency_hz": "50/60",
+                                         "max_ac_input_current_a": 0, "max_ac_output_current_a": 0},
+                     "startup_surge": {"surge_power_va": 0, "duration_seconds": 0}},
+        "external_battery": {"brand": "إدخال يدوي", "model": "Manual Battery", "chemistry": "غير معروف",
+                             "capacity_ah": m_bah, "capacity_kwh": m_bkwh, "nominal_voltage_v": m_bv,
+                             "max_charge_current_a": 0, "max_discharge_current_a": m_bdis}
+    }
 
 # 5. دوال مساعدة
 def safe_float(value, default=0.0):
@@ -326,13 +381,18 @@ def extract_via_text(p_text, i_text, b_text, key):
 
 # 8. زر التفعيل والتحليل
 if st.button("⚡ تحليل سريع واستخراج التقرير والحسابات"):
-    if not api_key:
+    if "🧮" in search_mode:
+        res = manual_data
+    elif not api_key:
         st.error("⚠️ يرجى إدخال مفتاح Gemini API Key في القائمة الجانبية.")
+        res = None
     else:
         res = None
         start_t = time.time()
 
-        if "📸" in search_mode:
+        if res is not None:
+            pass
+        elif "📸" in search_mode:
             if not uploaded_panel or not uploaded_inverter:
                 st.error("⚠️ يرجى تحميل صورة اللوح والإنفيرتر معاً لمتابعة الحسابات.")
             elif enable_battery and not uploaded_battery:
@@ -709,6 +769,9 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
             rec_kw = rec_panels * pmax / 1000 if pmax else 0
             dc_ac = rec_kw / (ac_rated_power / 1000) if ac_rated_power else 0
 
+            st.info("🔀 إعداد المداخل: " + " | ".join(
+                f"MPPT{i+1}: {n} String" for i, n in enumerate(mppt_string_counts)
+            ))
             st.success(
                 f"**{rec_panels} لوحاً** = **{rec_kw:.2f} kWp**، "
                 f"بواقع **{rec_s} ألواح لكل String** على **{total_strings} Strings**. "
@@ -730,7 +793,19 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
             )
 
             if custom_n:
-                strings = distribute_panels(custom_n, mppt_count, strings_per_mppt)
+                if manual_cfg and isinstance(manual_cfg, list):
+                    base = custom_n // total_strings
+                    rem = custom_n % total_strings
+                    strings = []
+                    sid = 1
+                    for mppt_no, count in enumerate(mppt_string_counts, 1):
+                        for _ in range(count):
+                            n = base + (1 if sid <= rem else 0)
+                            strings.append({"string": sid, "mppt": mppt_no, "panels": n})
+                            sid += 1
+                else:
+                    strings = distribute_panels(custom_n, mppt_count, strings_per_mppt)
+
                 errors, warnings = validate_string_distribution(
                     strings, pmax, voc, vmp, isc, v_max,
                     v_mppt_min, v_mppt_max, max_mppt_current,
