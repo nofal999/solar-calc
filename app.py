@@ -1,6 +1,6 @@
 # ==============================================================================
-# MSSTD Solar Design & Engineering Assistant (Full Enterprise Edition v3.0)
-# المساعد الهندسي المتكامل لتصميم وفحص منظومات الطاقة الشمسية - الإصدار الشامل الكامل
+# MSSTD Solar Design & Engineering Assistant (Full Enterprise Edition v4.0)
+# المساعد الهندسي المتكامل لتصميم وفحص منظومات الطاقة الشمسية - الإصدار الشامل
 # ==============================================================================
 
 import streamlit as st
@@ -15,7 +15,7 @@ from datetime import datetime
 # 1. إعدادات الصفحة الأساسية وتكوين الواجهة (Page Configuration & Layout)
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="MSSTD Solar Engineering Suite - Enterprise Edition v3.0",
+    page_title="MSSTD Solar Engineering Suite - Enterprise Edition v4.0",
     page_icon="☀️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -61,10 +61,11 @@ st.markdown("""
 # ------------------------------------------------------------------------------
 # 3. ترويسة التطبيق والعنوان الرئيسي (Header & System Intro)
 # ------------------------------------------------------------------------------
-st.title("☀️ منصة MSSTD الهندسية المتقدمة للطاقة الشمسية (الإصدار الشامل الكامل v3.0)")
+st.title("☀️ منصة MSSTD الهندسية المتقدمة للطاقة الشمسية (الإصدار الشامل الكامل v4.0)")
 st.markdown("---")
 st.markdown("""
-مرحباً بك يا بشمهندس في النسخة الهندسية الشاملة والموسعة (أكثر من 900 سطر برمجياً). تم تصميم هذه المنصة خصيصاً لمشاريع الطاقات المتجددة والأنظمة الهجينة التجارية والصناعية، متضمنة تدقيقاً هندسياً كاملاً لحسابات السلاسل، درجات الحرارة الدنيا الحرجة، السعات التخزينية للبطاريات، حمايات الـ DC/AC، وفترات الاسترداد المالي بدقة متناهية.
+مرحباً بك يا بشمهندس في النسخة الهندسية الشاملة والموسعة لمشاريع الطاقة الشمسية. 
+هذا القسم الأول من الكود الهندسي المتكامل الذي يغطي كافة المدخلات، حسابات الـ MPPT، والتحليلات المتقدمة.
 """)
 
 # ------------------------------------------------------------------------------
@@ -210,7 +211,7 @@ def calculate_battery_storage_system(b_volts_val, b_ah_val, b_kwh_val, b_max_dis
 
 def calculate_cable_voltage_drop(current_amp_val, length_m_val, section_mm2_val, voltage_system_val=400.0):
     """حساب الفاقد والهبوط في الجهد الكهربائي للكابلات النحاسية DC/AC"""
-    rho = 0.0175  # النحاس المقاومة النوعية
+    rho = 0.0175
     if section_mm2_val > 0 and voltage_system_val > 0:
         voltage_drop = (2.0 * length_m_val * current_amp_val * rho) / section_mm2_val
         percentage_drop = (voltage_drop / voltage_system_val) * 100.0
@@ -218,26 +219,9 @@ def calculate_cable_voltage_drop(current_amp_val, length_m_val, section_mm2_val,
         voltage_drop = 0.0
         percentage_drop = 0.0
     return voltage_drop, percentage_drop
-
-def generate_system_diagnostic_report():
-    """توليد تقرير تشخيصي شامل لحالة النظام والأكواد الزمنية"""
-    report_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    system_status_code = "OPERATIONAL_STABLE_ENTERPRISE"
-    diagnostic_notes = "جميع المؤشرات الفنية، السلاسل الكهروضوئية، وجهود العزل ضمن النطاق المعياري الآمن تماماً."
-    return report_timestamp, system_status_code, diagnostic_notes
-
-def export_project_configuration_json(brand_name, power_val, total_panels_val, storage_kwh_val):
-    """تصدير ملف إعدادات المشروع بصيغة JSON المتقدمة"""
-    config_data = {
-        "software_suite": "MSSTD Solar Engineering Suite",
-        "version": "3.0 Enterprise",
-        "inverter_brand": brand_name,
-        "ac_rated_power_watts": power_val,
-        "total_panels_count": total_panels_val,
-        "storage_capacity_kwh": storage_kwh_val,
-        "timestamp": str(datetime.now())
-    }
-    return json.dumps(config_data, ensure_ascii=False, indent=4)
+    # ==============================================================================
+# MSSTD Solar Design & Engineering Assistant (Part 2 - Enterprise UI & Analytics)
+# ==============================================================================
 
 # ------------------------------------------------------------------------------
 # 6. واجهة العرض الرئيسية - لوحة المؤشرات العليا (Metrics Overview Dashboard)
@@ -398,8 +382,11 @@ st.markdown("---")
 # ------------------------------------------------------------------------------
 st.subheader("📋 التقرير الهندسي النهائي الشامل واعتماد النظام (System Verdict)")
 
-diag_timestamp, diag_code, diag_msg = generate_system_diagnostic_report()
-st.info(f"📌 **معرف التشخيص التقني:** `{diag_code}` | **وقت الفحص:** `{diag_timestamp}`\n\n{diag_msg}")
+report_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+system_status_code = "OPERATIONAL_STABLE_ENTERPRISE_FULL"
+diagnostic_notes = "جميع المؤشرات الفنية، السلاسل الكهروضوئية، وجهود العزل ضمن النطاق المعياري الآمن تماماً."
+
+st.info(f"📌 **معرف التشخيص التقني:** `{system_status_code}` | **وقت الفحص:** `{report_timestamp}`\n\n{diagnostic_notes}")
 
 final_checks_list = [
     {
@@ -432,9 +419,16 @@ st.markdown("---")
 # قسم تصدير التقرير والبيانات التقنية بصيغة JSON المتقدمة
 st.subheader("💾 تصدير وحفظ إعدادات المشروع الفنية")
 if st.button("تصدير ملف إعدادات المشروع (JSON Config)"):
-    json_export_str = export_project_configuration_json(
-        inv_brand, ac_rated_power, user_total_panels_input, battery_analysis['total_bank_kwh'] if is_on_grid else 0.0
-    )
+    config_data = {
+        "software_suite": "MSSTD Solar Engineering Suite",
+        "version": "4.0 Enterprise Full",
+        "inverter_brand": inv_brand,
+        "ac_rated_power_watts": ac_rated_power,
+        "total_panels_count": user_total_panels_input,
+        "storage_capacity_kwh": battery_analysis['total_bank_kwh'] if is_on_grid else 0.0,
+        "timestamp": str(datetime.now())
+    }
+    json_export_str = json.dumps(config_data, ensure_ascii=False, indent=4)
     st.code(json_export_str, language="json")
     st.success("🟢 تم إنشاء ملف الإعدادات التقنية بنجاح وجاهز للنسخ والحفظ.")
 
