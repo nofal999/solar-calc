@@ -81,7 +81,7 @@ with st.sidebar:
         type="password",
         help="احصل عليه مجاناً من Google AI Studio",
     )
-    st.info("💡 مفتاح Gemini مطلوب لوضعي الصور والبحث النصي فقط. الإدخال اليدوي لا يحتاج مفتاحاً[cite: 2].")
+    st.info("💡 مفتاح Gemini مطلوب لوضعي الصور والبحث النصي فقط. الإدخال اليدوي لا يحتاج مفتاحاً.")
 
 # 4. التبديل بين طريقتي البحث
 search_mode = st.radio(
@@ -103,8 +103,9 @@ uploaded_battery = None
 panel_text_query = ""
 inverter_text_query = ""
 battery_text_query = ""
- manual_data = {"panel": {}, "inverter": {}, "external_battery": {}}
+manual_data = {"panel": {}, "inverter": {}, "external_battery": {}}
 mppt_string_counts = [1]
+manual_cfg = None
 
 if "📸" in search_mode:
     cols = st.columns(3 if enable_battery else 2)
@@ -127,7 +128,7 @@ elif "✍️" in search_mode:
             battery_text_query = st.text_input("🔋 اسم الشركة والموديل للبطارية:", placeholder="مثال: Pylontech US3000C")
 
 else:
-    st.info("🧮 الإدخال اليدوي لا يحتاج Gemini API Key[cite: 2].")
+    st.info("🧮 الإدخال اليدوي لا يحتاج Gemini API Key.")
     st.markdown("### ☀️ مواصفات اللوح الشمسي")
     c = st.columns(5)
     m_pmax = c[0].number_input("Pmax (W)", min_value=0.0, value=550.0, step=10.0, key="m_pmax")
@@ -154,7 +155,7 @@ else:
     m_i_model = st.text_input("موديل الإنفيرتر", key="m_i_model")
 
     st.markdown("### 🔀 إعداد MPPT و Strings")
-    st.caption("الحد الأدنى MPPT1 + String1. يمكنك إضافة MPPT2 وMPPT3، ولكل MPPT عدد Strings مستقل[cite: 2].")
+    st.caption("الحد الأدنى MPPT1 + String1. يمكنك إضافة MPPT2 وMPPT3، ولكل MPPT عدد Strings مستقل.")
 
     s1 = st.number_input("MPPT 1 — عدد Strings", min_value=1, max_value=4, value=1, step=1, key="manual_s1")
     use2 = st.checkbox("➕ إضافة MPPT 2", key="manual_use2")
@@ -162,6 +163,7 @@ else:
     use3 = st.checkbox("➕ إضافة MPPT 3", key="manual_use3")
     s3 = st.number_input("MPPT 3 — عدد Strings", min_value=1, max_value=4, value=1, step=1, key="manual_s3") if use3 else 0
     mppt_string_counts = [s1] + ([s2] if use2 else []) + ([s3] if use3 else [])
+    manual_cfg = mppt_string_counts
 
     st.markdown("### 🔋 البطارية الخارجية — اختياري")
     c = st.columns(4)
@@ -612,7 +614,6 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     mppt_count = clamp_positive_int(inv.get("mppt_count"), 1)
     strings_per_mppt = clamp_positive_int(inv.get("strings_per_mppt"), 1)
     max_mppt_current = safe_float(inv.get("max_mppt_current"))
-    manual_cfg = inv.get("mppt_strings_config", None)
 
     batt_info = inv.get("battery", {}) or {}
     ac_info = inv.get("ac_input_output", {}) or {}
@@ -740,7 +741,7 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
     else:
         min_s = limits["min_series"]
         max_s = limits["max_series"]
-        total_strings = sum(manual_cfg) if manual_cfg and isinstance(manual_cfg, list) else (mppt_count * strings_per_mppt)
+        total_strings = sum(mppt_string_counts) if manual_cfg else (mppt_count * strings_per_mppt)
 
         if max_s < min_s:
             st.error(
@@ -769,11 +770,9 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
             rec_kw = rec_panels * pmax / 1000 if pmax else 0
             dc_ac = rec_kw / (ac_rated_power / 1000) if ac_rated_power else 0
 
-            if manual_cfg and isinstance(manual_cfg, list):
-                st.info("🔀 إعداد المداخل: " + " | ".join(
-                    f"MPPT{i+1}: {n} String" for i, n in enumerate(manual_cfg)
-                ))
-
+            st.info("🔀 إعداد المداخل: " + " | ".join(
+                f"MPPT{i+1}: {n} String" for i, n in enumerate(mppt_string_counts)
+            ))
             st.success(
                 f"**{rec_panels} لوحاً** = **{rec_kw:.2f} kWp**، "
                 f"بواقع **{rec_s} ألواح لكل String** على **{total_strings} Strings**. "
@@ -800,7 +799,7 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
                     rem = custom_n % total_strings
                     strings = []
                     sid = 1
-                    for mppt_no, count in enumerate(manual_cfg, 1):
+                    for mppt_no, count in enumerate(mppt_string_counts, 1):
                         for _ in range(count):
                             n = base + (1 if sid <= rem else 0)
                             strings.append({"string": sid, "mppt": mppt_no, "panels": n})
@@ -971,3 +970,4 @@ if "analysis_result" in st.session_state and st.session_state["analysis_result"]
         "ودرجة الحرارة والكابلات والحماية وتعليمات الشركة المصنعة. لا تعتمد التوصيل "
         "النهائي دون مراجعة مهندس/فني مؤهل."
     )
+```[cite: 3, 4]
