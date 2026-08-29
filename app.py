@@ -1,99 +1,90 @@
-# ============================================================
-# SOLAR PV DESIGN & VERIFICATION TOOL
-# Version: Dynamic MPPT + String Scenarios + Optional Battery
-# ============================================================
-
 import json
 import math
 import time
-from copy import deepcopy
 
 import streamlit as st
 from PIL import Image
 
-
-# ============================================================
-# GEMINI IMPORT
-# ============================================================
-
 try:
     from google import genai
     from google.genai import types
-
     GEMINI_AVAILABLE = True
-
-except ImportError:
+except Exception:
     GEMINI_AVAILABLE = False
 
 
 # ============================================================
-# PAGE CONFIG
+# 1. PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
-    page_title="Solar PV Design & Verification",
+    page_title="Solar System Designer & Checker",
     page_icon="☀️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 
 # ============================================================
-# CSS
+# 2. STYLE
 # ============================================================
 
 st.markdown(
     """
     <style>
-
-    html, body, [class*="css"] {
-        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
-    }
-
     [data-testid="stMainBlockContainer"],
     [data-testid="stSidebarContent"] {
         direction: rtl;
         text-align: right;
+        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
     }
 
-    [data-testid="stMarkdownContainer"] {
+    div[data-testid="stMarkdownContainer"] p,
+    div[data-testid="stMarkdownContainer"] h1,
+    div[data-testid="stMarkdownContainer"] h2,
+    div[data-testid="stMarkdownContainer"] h3,
+    div[data-testid="stMarkdownContainer"] h4,
+    div[data-testid="stMarkdownContainer"] li {
+        direction: rtl !important;
+        text-align: right !important;
+    }
+
+    .stButton > button {
+        width: 100%;
+        border-radius: 8px;
+        font-weight: bold;
+        min-height: 42px;
+    }
+
+    div[data-testid="stMetric"] {
         direction: rtl;
-        text-align: right;
     }
 
-    .solar-card {
-        padding: 15px;
-        border-radius: 12px;
-        border: 1px solid rgba(128,128,128,0.25);
-        margin-bottom: 10px;
+    .small-note {
+        font-size: 0.85rem;
+        color: #666;
     }
 
-    .pass-box {
+    .good-box {
         padding: 12px;
-        border-radius: 10px;
-        background: rgba(0, 180, 0, 0.10);
-        border: 1px solid rgba(0, 180, 0, 0.35);
+        border-radius: 8px;
+        border: 1px solid #2e7d32;
+        background: rgba(46, 125, 50, 0.08);
     }
 
     .warning-box {
         padding: 12px;
-        border-radius: 10px;
-        background: rgba(255, 180, 0, 0.10);
-        border: 1px solid rgba(255, 180, 0, 0.35);
+        border-radius: 8px;
+        border: 1px solid #ef6c00;
+        background: rgba(239, 108, 0, 0.08);
     }
 
-    .fail-box {
+    .bad-box {
         padding: 12px;
-        border-radius: 10px;
-        background: rgba(220, 0, 0, 0.10);
-        border: 1px solid rgba(220, 0, 0, 0.35);
+        border-radius: 8px;
+        border: 1px solid #c62828;
+        background: rgba(198, 40, 40, 0.08);
     }
-
-    .small-text {
-        font-size: 0.85rem;
-        opacity: 0.75;
-    }
-
     </style>
     """,
     unsafe_allow_html=True,
@@ -101,113 +92,459 @@ st.markdown(
 
 
 # ============================================================
-# TITLE
+# 3. INITIAL SESSION STATE
 # ============================================================
 
-st.title("☀️ Solar PV Design & Verification Tool")
-
-st.caption(
-    "أداة تصميم وفحص منظومات Solar PV — "
-    "PV Array + MPPT + Inverter + Battery + Loads + Cable"
-)
-
-
-# ============================================================
-# SESSION STATE
-# ============================================================
-
-DEFAULT_STATE = {
-    "extracted_data": None,
-    "approved_data": None,
-    "last_analysis": None,
+DEFAULTS = {
+    "analysis_result": None,
+    "battery_enabled": False,
+    "custom_panels": None,
+    "number_of_mppts": 1,
+    "manual_mppt_strings": [1],
+    "cold_factor": 1.15,
+    "voltage_margin": 0.95,
+    "mppt_margin": 1.10,
 }
 
-for key, value in DEFAULT_STATE.items():
-
+for key, value in DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
 
 # ============================================================
-# GENERAL FUNCTIONS
+# 4. HELPERS
 # ============================================================
 
 def safe_float(value, default=0.0):
+    if value is None:
+        return default
 
     try:
-
-        if value is None:
-            return default
-
-        if isinstance(value, str):
-            value = value.strip()
-
-            if not value:
-                return default
-
-            value = value.replace(",", ".")
-
         return float(value)
-
-    except Exception:
-
+    except (ValueError, TypeError):
         return default
 
 
 def safe_int(value, default=0):
-
     try:
-        return int(float(value))
-
-    except Exception:
-
+        return int(value)
+    except (ValueError, TypeError):
         return default
 
 
-def fmt(value, unit="", decimals=2):
-
+def safe_text(value, default="غير معروف"):
     if value is None:
-        return "N/A"
+        return default
+
+    text = str(value).strip()
+
+    if not text:
+        return default
+
+    return text
+
+
+def clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+def fmt(value, digits=2):
+    if value is None:
+        return "—"
 
     try:
-
-        value = float(value)
-
-        return f"{value:.{decimals}f} {unit}".strip()
-
+        return f"{float(value):,.{digits}f}"
     except Exception:
-
         return str(value)
 
 
-def status_icon(status):
+def clean_old_session_state():
+    """
+    حماية من القيم القديمة في session_state.
+    خصوصاً DoD من الإصدارات السابقة.
+    """
+    if "review_battery_dod" in st.session_state:
+        try:
+            old = float(st.session_state["review_battery_dod"])
+            st.session_state["review_battery_dod"] = clamp(old, 50.0, 95.0)
+        except Exception:
+            st.session_state["review_battery_dod"] = 80.0
 
-    if status == "PASS":
-        return "🟢 PASS"
-
-    if status == "WARNING":
-        return "🟡 WARNING"
-
-    if status == "FAIL":
-        return "🔴 FAIL"
-
-    return "🔵 INFO"
+    if "dod_pct" in st.session_state:
+        try:
+            old = float(st.session_state["dod_pct"])
+            st.session_state["dod_pct"] = int(clamp(old, 50, 95))
+        except Exception:
+            st.session_state["dod_pct"] = 80
 
 
-def clean_json_text(text):
-
-    text = text.strip()
-
-    if text.startswith("```"):
-
-        text = text.replace("```json", "")
-        text = text.replace("```", "")
-
-    return text.strip()
+clean_old_session_state()
 
 
 # ============================================================
-# GEMINI JSON STRUCTURE
+# 5. BATTERY VOLTAGE CHECK
+# ============================================================
+
+def battery_voltage_class(voltage):
+    voltage = safe_float(voltage)
+
+    if 10 <= voltage <= 15:
+        return "12V"
+
+    if 20 <= voltage <= 30:
+        return "24V"
+
+    if 40 <= voltage <= 60:
+        return "48V / 51.2V"
+
+    if voltage >= 100:
+        return "HV"
+
+    return "غير محدد"
+
+
+def check_battery_voltage(inverter_voltage, battery_voltage):
+    inv_v = safe_float(inverter_voltage)
+    bat_v = safe_float(battery_voltage)
+
+    if inv_v <= 0 or bat_v <= 0:
+        return None, "لا توجد بيانات جهد كافية للحكم على التوافق."
+
+    inv_class = battery_voltage_class(inv_v)
+    bat_class = battery_voltage_class(bat_v)
+
+    if inv_class == bat_class and inv_class != "غير محدد":
+        return True, (
+            f"جهد البطارية {bat_v:g}V يقع ضمن فئة "
+            f"{bat_class} المتوافقة مع جهد النظام {inv_v:g}V."
+        )
+
+    if abs(inv_v - bat_v) <= 5:
+        return True, (
+            f"الجهدان متقاربان: الإنفيرتر {inv_v:g}V "
+            f"والبطارية {bat_v:g}V."
+        )
+
+    return False, (
+        f"اختلاف محتمل في جهد البطارية: "
+        f"الإنفيرتر {inv_v:g}V مقابل البطارية {bat_v:g}V."
+    )
+
+
+# ============================================================
+# 6. STRING ENGINEERING
+# ============================================================
+
+def calculate_string_limits(
+    voc,
+    vmp,
+    v_max,
+    v_mppt_min,
+    v_mppt_max,
+):
+    if voc <= 0 or vmp <= 0 or v_max <= 0:
+        return None
+
+    cold_factor = safe_float(
+        st.session_state.get("cold_factor", 1.15),
+        1.15
+    )
+
+    voltage_margin = safe_float(
+        st.session_state.get("voltage_margin", 0.95),
+        0.95
+    )
+
+    mppt_margin = safe_float(
+        st.session_state.get("mppt_margin", 1.10),
+        1.10
+    )
+
+    safe_mppt_min = (
+        v_mppt_min * mppt_margin
+        if v_mppt_min > 0
+        else 0
+    )
+
+    min_series = (
+        math.ceil(safe_mppt_min / vmp)
+        if safe_mppt_min > 0
+        else 1
+    )
+
+    cold_voc_panel = voc * cold_factor
+
+    safe_dc_max = v_max * voltage_margin
+
+    max_by_voc = (
+        math.floor(safe_dc_max / cold_voc_panel)
+        if cold_voc_panel > 0
+        else 999
+    )
+
+    max_by_mppt = (
+        math.floor(v_mppt_max / vmp)
+        if v_mppt_max > 0
+        else 999
+    )
+
+    max_series = min(max_by_voc, max_by_mppt)
+
+    return {
+        "min_series": max(1, min_series),
+        "max_series": max(1, max_series),
+        "cold_voc_panel": cold_voc_panel,
+        "safe_dc_max": safe_dc_max,
+        "safe_mppt_min": safe_mppt_min,
+        "cold_factor": cold_factor,
+        "voltage_margin": voltage_margin,
+        "mppt_margin": mppt_margin,
+    }
+
+
+# ============================================================
+# 7. MPPT / STRING DISTRIBUTION
+# ============================================================
+
+def build_mppt_config(mppt_count, string_counts):
+    """
+    يحول:
+    [1, 2, 1]
+    إلى:
+    MPPT1 = 1 string
+    MPPT2 = 2 strings
+    MPPT3 = 1 string
+    """
+
+    mppt_count = max(1, safe_int(mppt_count, 1))
+
+    result = []
+
+    for i in range(mppt_count):
+        if i < len(string_counts):
+            count = max(1, safe_int(string_counts[i], 1))
+        else:
+            count = 1
+
+        result.append(count)
+
+    return result
+
+
+def distribute_panels(total_panels, mppt_string_counts):
+    """
+    توزيع الألواح بالتساوي قدر الإمكان على كل Strings.
+    """
+
+    total_panels = max(1, safe_int(total_panels, 1))
+
+    total_strings = sum(mppt_string_counts)
+
+    if total_strings <= 0:
+        return []
+
+    base = total_panels // total_strings
+    remainder = total_panels % total_strings
+
+    rows = []
+
+    string_id = 1
+
+    for mppt_no, string_count in enumerate(mppt_string_counts, 1):
+
+        for local_string in range(1, string_count + 1):
+
+            panels = base
+
+            if string_id <= remainder:
+                panels += 1
+
+            rows.append(
+                {
+                    "MPPT": mppt_no,
+                    "String": local_string,
+                    "Global String": string_id,
+                    "Panels": panels,
+                }
+            )
+
+            string_id += 1
+
+    return rows
+
+
+# ============================================================
+# 8. STRING VALIDATION
+# ============================================================
+
+def evaluate_strings(
+    rows,
+    pmax,
+    voc,
+    vmp,
+    isc,
+    v_max,
+    mppt_min,
+    mppt_max,
+    max_mppt_current,
+):
+    errors = []
+    warnings = []
+
+    for row in rows:
+
+        n = row["Panels"]
+        mppt = row["MPPT"]
+        string_no = row["String"]
+
+        if n <= 0:
+            errors.append(
+                f"MPPT {mppt} / String {string_no}: "
+                f"لا توجد ألواح."
+            )
+            continue
+
+        string_vmp = n * vmp
+        string_voc_cold = n * voc * st.session_state.get(
+            "cold_factor", 1.15
+        )
+
+        # Minimum MPPT
+        safe_min = (
+            mppt_min
+            * st.session_state.get("mppt_margin", 1.10)
+        )
+
+        if mppt_min > 0 and string_vmp < safe_min:
+            errors.append(
+                f"MPPT {mppt} / String {string_no}: "
+                f"Vmp = {string_vmp:.1f}V أقل من "
+                f"الحد الآمن للـ MPPT ({safe_min:.1f}V)."
+            )
+
+        # MPPT maximum
+        if mppt_max > 0 and string_vmp > mppt_max:
+            errors.append(
+                f"MPPT {mppt} / String {string_no}: "
+                f"Vmp = {string_vmp:.1f}V يتجاوز "
+                f"MPPT Max = {mppt_max:.1f}V."
+            )
+
+        # DC maximum
+        safe_vmax = (
+            v_max
+            * st.session_state.get("voltage_margin", 0.95)
+        )
+
+        if v_max > 0 and string_voc_cold > safe_vmax:
+            errors.append(
+                f"MPPT {mppt} / String {string_no}: "
+                f"Voc البارد ≈ {string_voc_cold:.1f}V "
+                f"يتجاوز الحد الآمن ≈ {safe_vmax:.1f}V."
+            )
+
+    # MPPT current
+    by_mppt = {}
+
+    for row in rows:
+        by_mppt.setdefault(row["MPPT"], []).append(row)
+
+    for mppt_no, mppt_rows in by_mppt.items():
+
+        string_count = len(mppt_rows)
+
+        design_current = string_count * isc * 1.25
+
+        if (
+            max_mppt_current > 0
+            and design_current > max_mppt_current
+        ):
+            errors.append(
+                f"MPPT {mppt_no}: "
+                f"التيار التصميمي ≈ {design_current:.2f}A "
+                f"أعلى من الحد {max_mppt_current:.2f}A."
+            )
+
+    return errors, warnings
+
+
+# ============================================================
+# 9. BATTERY CALCULATOR
+# ============================================================
+
+def calculate_battery(
+    battery_voltage,
+    battery_ah,
+    battery_kwh,
+    max_discharge,
+    daily_load_kwh,
+    autonomy_hours,
+    dod,
+    efficiency,
+    peak_load_kw,
+):
+    if daily_load_kwh <= 0:
+        return None
+
+    if autonomy_hours <= 0:
+        return None
+
+    avg_load_w = daily_load_kwh * 1000 / 24
+
+    required_load_wh = avg_load_w * autonomy_hours
+
+    efficiency = max(0.1, efficiency)
+
+    required_from_battery_wh = (
+        required_load_wh / efficiency
+    )
+
+    dod = clamp(dod, 0.05, 1.0)
+
+    required_nominal_wh = (
+        required_from_battery_wh / dod
+    )
+
+    if battery_kwh > 0:
+        unit_wh = battery_kwh * 1000
+
+    elif battery_voltage > 0 and battery_ah > 0:
+        unit_wh = battery_voltage * battery_ah
+
+    else:
+        unit_wh = 0
+
+    battery_count = (
+        math.ceil(required_nominal_wh / unit_wh)
+        if unit_wh > 0
+        else 0
+    )
+
+    total_kwh = (
+        battery_count * unit_wh / 1000
+        if unit_wh > 0
+        else 0
+    )
+
+    theoretical_power = (
+        battery_voltage * max_discharge
+        if battery_voltage > 0 and max_discharge > 0
+        else 0
+    )
+
+    return {
+        "average_load_w": avg_load_w,
+        "required_nominal_kwh": required_nominal_wh / 1000,
+        "unit_kwh": unit_wh / 1000 if unit_wh else 0,
+        "battery_count": battery_count,
+        "total_kwh": total_kwh,
+        "theoretical_power_w": theoretical_power,
+        "peak_load_kw": peak_load_kw,
+    }
+
+
+# ============================================================
+# 10. JSON STRUCTURE FOR GEMINI
 # ============================================================
 
 JSON_STRUCTURE = """
@@ -217,15 +554,11 @@ JSON_STRUCTURE = """
     "model": "",
     "part_number": "",
     "type": "",
-    "pmax_w": 0,
-    "voc_v": 0,
-    "vmp_v": 0,
-    "isc_a": 0,
-    "imp_a": 0,
-    "voc_temp_coeff_pct_per_c": 0,
-    "vmp_temp_coeff_pct_per_c": 0,
-    "max_system_voltage_v": 0,
-    "max_series_fuse_a": 0
+    "pmax": 0,
+    "voc": 0,
+    "vmp": 0,
+    "isc": 0,
+    "imp": 0
   },
 
   "inverter": {
@@ -234,97 +567,68 @@ JSON_STRUCTURE = """
     "part_number": "",
     "type": "",
     "phase_type": "",
-
+    "voltage_architecture": "",
     "ac_rated_power_w": 0,
-
-    "max_dc_voltage_v": 0,
-
-    "mppt_voltage_min_v": 0,
-    "mppt_voltage_max_v": 0,
-    "start_voltage_v": 0,
-
+    "v_max": 0,
+    "v_mppt_min": 0,
+    "v_mppt_max": 0,
+    "v_start": 0,
     "mppt_count": 1,
-
-    "mppts": [
-      {
-        "mppt": 1,
-        "max_current_a": 0,
-        "max_voltage_v": 0,
-        "max_short_circuit_current_a": 0,
-        "max_strings": 0
-      }
-    ],
+    "strings_per_mppt": 1,
+    "mppt_strings_config": [1],
+    "max_mppt_current": 0,
 
     "battery": {
       "supported": false,
       "nominal_voltage_v": 0,
-      "min_voltage_v": 0,
-      "max_voltage_v": 0,
-      "max_charge_current_a": 0,
-      "max_discharge_current_a": 0
+      "battery_type": "",
+      "max_charge_current_a": 0
     },
 
-    "ac": {
-      "nominal_voltage_v": 0,
-      "frequency_hz": 0,
-      "max_ac_current_a": 0
+    "ac_input_output": {
+      "nominal_ac_voltage_v": "",
+      "frequency_hz": "",
+      "max_ac_input_current_a": 0,
+      "max_ac_output_current_a": 0
+    },
+
+    "startup_surge": {
+      "surge_power_va": 0,
+      "duration_seconds": 0
     }
   },
 
-  "battery": {
+  "external_battery": {
     "brand": "",
     "model": "",
     "chemistry": "",
-    "nominal_voltage_v": 0,
     "capacity_ah": 0,
     "capacity_kwh": 0,
+    "nominal_voltage_v": 0,
     "max_charge_current_a": 0,
-    "max_discharge_current_a": 0,
-    "recommended_dod_pct": 0
+    "max_discharge_current_a": 0
   }
 }
 """
 
 
 # ============================================================
-# GEMINI ERROR DETECTION
+# 11. IMAGE COMPRESSION
 # ============================================================
 
-def is_temporary_gemini_error(error):
+def compress_image(img, max_dim=1200):
+    copied = img.copy()
 
-    text = str(error).lower()
-
-    temporary_words = [
-        "503",
-        "unavailable",
-        "high demand",
-        "overloaded",
-        "temporarily",
-        "service unavailable",
-        "internal server error",
-        "deadline exceeded",
-    ]
-
-    return any(
-        word in text
-        for word in temporary_words
+    copied.thumbnail(
+        (max_dim, max_dim),
+        Image.Resampling.LANCZOS
     )
 
-
-# ============================================================
-# GEMINI MODEL FALLBACK
-# ============================================================
-
-GEMINI_MODELS = [
-    "gemini-3.7-flash",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-2.5-flash",
-]
+    return copied
 
 
 # ============================================================
-# GEMINI IMAGE EXTRACTION
+# 12. GEMINI IMAGE EXTRACTION
 # ============================================================
 
 def extract_from_images(
@@ -333,125 +637,64 @@ def extract_from_images(
     battery_img,
     api_key,
 ):
-
     if not GEMINI_AVAILABLE:
-
         raise RuntimeError(
-            "مكتبة google-genai غير مثبتة.\n"
-            "ثبتها بالأمر:\n\n"
-            "pip install -U google-genai"
+            "حزمة google-genai غير مثبتة."
         )
 
-    client = genai.Client(
-        api_key=api_key
-    )
+    client = genai.Client(api_key=api_key)
 
-    contents = []
-
-    contents.append(panel_img)
-    contents.append(inverter_img)
+    contents = [
+        compress_image(panel_img),
+        compress_image(inverter_img),
+    ]
 
     if battery_img is not None:
-        contents.append(battery_img)
+        contents.append(compress_image(battery_img))
 
     prompt = f"""
-أنت مهندس متخصص في تصميم أنظمة الطاقة الشمسية Solar PV.
+أنت مهندس تصميم وفحص منظومات طاقة شمسية.
 
-حلل الصور المرفقة.
+حلل الصور المرفقة بدقة.
 
-الصورة الأولى = Solar Panel.
-الصورة الثانية = Inverter.
-الصورة الثالثة إن وجدت = Battery.
+الصور قد تحتوي على:
+1. Solar Panel
+2. Solar Inverter
+3. External Battery إذا تم إرفاقها
 
-استخرج فقط البيانات الظاهرة أو التي يمكن قراءتها بثقة.
+استخرج بيانات الملصقات فقط، ولا تخمن المواصفات
+إذا لم تكن ظاهرة.
 
-أعد JSON فقط وفق هذا الهيكل:
+أعد JSON فقط وفق الهيكل التالي:
 
 {JSON_STRUCTURE}
 
-قواعد مهمة جداً:
-
-1. لا تخمن القيم.
-2. إذا لم تكن القيمة واضحة استخدم 0.
-3. لا تحول قيمة غير موجودة إلى قيمة تقديرية.
-4. استخرج عدد MPPT الحقيقي إذا كان موجوداً.
-5. لكل MPPT حاول استخراج:
-   - maximum current
-   - maximum voltage
-   - short circuit current limit
-   - maximum number of strings
-6. إذا لم تكن بيانات MPPT منفصلة موجودة، استخدم mppt_count فقط.
-7. حافظ على الوحدات.
-8. لا تضع نصاً خارج JSON.
+قواعد مهمة:
+- الأرقام بدون وحدات.
+- إذا لم تجد قيمة رقمية ضع 0.
+- إذا لم تجد نصاً ضع "غير معروف".
+- mppt_count يجب أن يمثل عدد MPPT الحقيقي إذا ظهر.
+- mppt_strings_config يجب أن يحتوي عدد الـ Strings لكل MPPT
+  إذا كانت المعلومات موجودة.
+- لا تخترع بيانات غير موجودة في الصور.
 """
 
     contents.append(prompt)
 
-    last_error = None
-
-    for model_name in GEMINI_MODELS:
-
-        for attempt in range(3):
-
-            try:
-
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.0,
-                    ),
-                )
-
-                if not response:
-
-                    raise RuntimeError(
-                        "Gemini returned no response."
-                    )
-
-                text = response.text
-
-                if not text:
-
-                    raise RuntimeError(
-                        "Gemini returned empty response."
-                    )
-
-                text = clean_json_text(text)
-
-                data = json.loads(text)
-
-                return data
-
-            except Exception as error:
-
-                last_error = error
-
-                if not is_temporary_gemini_error(
-                    error
-                ):
-
-                    raise
-
-                wait_seconds = min(
-                    3 * (2 ** attempt),
-                    20,
-                )
-
-                time.sleep(
-                    wait_seconds
-                )
-
-    raise RuntimeError(
-        "Gemini غير متاح حالياً بعد تجربة عدة "
-        "نماذج ومحاولات.\n\n"
-        f"آخر خطأ:\n{last_error}"
+    response = client.models.generate_content(
+        model="models/gemini-3.6-flash",
+        contents=contents,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.0,
+        ),
     )
+
+    return json.loads(response.text)
 
 
 # ============================================================
-# GEMINI TEXT EXTRACTION
+# 13. GEMINI TEXT EXTRACTION
 # ============================================================
 
 def extract_from_text(
@@ -460,23 +703,23 @@ def extract_from_text(
     battery_query,
     api_key,
 ):
-
     if not GEMINI_AVAILABLE:
-
         raise RuntimeError(
-            "مكتبة google-genai غير مثبتة.\n"
-            "نفذ:\n"
-            "pip install -U google-genai"
+            "حزمة google-genai غير مثبتة."
         )
 
-    client = genai.Client(
-        api_key=api_key
+    client = genai.Client(api_key=api_key)
+
+    battery_part = (
+        f'البطارية الخارجية: "{battery_query}"'
+        if battery_query
+        else "لا توجد بطارية خارجية."
     )
 
     prompt = f"""
-أنت مهندس Solar PV.
+أنت مهندس طاقة شمسية متخصص في Datasheets.
 
-ابحث/استخرج المواصفات الخاصة بالمكونات التالية:
+ابحث/حلل المواصفات للموديلات التالية:
 
 Solar Panel:
 {panel_query}
@@ -484,161 +727,443 @@ Solar Panel:
 Inverter:
 {inverter_query}
 
-Battery:
-{battery_query if battery_query else "لا توجد بطارية"}
+{battery_part}
 
-أعد JSON فقط.
-
-الهيكل:
+أعد JSON فقط وفق:
 
 {JSON_STRUCTURE}
 
-قواعد:
-- لا تخمن.
-- إذا لم تجد قيمة استخدم 0.
-- يجب أن تكون القيم مرتبطة بالموديل المحدد.
-- حاول تمييز بيانات كل MPPT.
-- لا تفترض أن جميع MPPTs لها نفس التيار إذا كانت البيانات مختلفة.
+مهم جداً:
+- لا تخترع قيمة إذا لم تكن متأكداً منها.
+- القيم الرقمية أرقام فقط.
+- القيم المفقودة = 0.
+- النصوص المفقودة = "غير معروف".
+- يجب تحديد MPPT Count.
+- إذا كان لكل MPPT عدد Strings مختلف، استخدم
+  mppt_strings_config مثل:
+  [1,2,1]
+- إذا كانت البيانات غير معروفة استخدم [1].
 """
 
-    last_error = None
-
-    for model_name in GEMINI_MODELS:
-
-        for attempt in range(3):
-
-            try:
-
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[prompt],
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.0,
-                    ),
-                )
-
-                text = clean_json_text(
-                    response.text
-                )
-
-                return json.loads(text)
-
-            except Exception as error:
-
-                last_error = error
-
-                if not is_temporary_gemini_error(
-                    error
-                ):
-
-                    raise
-
-                wait_seconds = min(
-                    3 * (2 ** attempt),
-                    20,
-                )
-
-                time.sleep(
-                    wait_seconds
-                )
-
-    raise RuntimeError(
-        "تعذر الاتصال بـ Gemini.\n"
-        f"آخر خطأ:\n{last_error}"
+    response = client.models.generate_content(
+        model="models/gemini-3.6-flash",
+        contents=[prompt],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.0,
+        ),
     )
+
+    return json.loads(response.text)
 
 
 # ============================================================
-# NORMALIZE DATA
+# 14. MANUAL INPUT
 # ============================================================
 
-def normalize_data(data):
-
-    data = deepcopy(data)
-
-    if "panel" not in data:
-        data["panel"] = {}
-
-    if "inverter" not in data:
-        data["inverter"] = {}
-
-    if "battery" not in data:
-        data["battery"] = {}
-
-    panel = data["panel"]
-    inverter = data["inverter"]
-    battery = data["battery"]
-
-    panel.setdefault("pmax_w", 0)
-    panel.setdefault("voc_v", 0)
-    panel.setdefault("vmp_v", 0)
-    panel.setdefault("isc_a", 0)
-    panel.setdefault("imp_a", 0)
-    panel.setdefault(
-        "voc_temp_coeff_pct_per_c",
-        0,
-    )
-    panel.setdefault(
-        "vmp_temp_coeff_pct_per_c",
-        0,
+def manual_input_section(battery_enabled):
+    st.info(
+        "🧮 الإدخال اليدوي مستقل عن Gemini ولا يحتاج مفتاح API."
     )
 
-    inverter.setdefault(
-        "mppt_count",
-        1,
+    # -------------------------
+    # PANEL
+    # -------------------------
+
+    st.markdown("## ☀️ مواصفات اللوح الشمسي")
+
+    c = st.columns(5)
+
+    pmax = c[0].number_input(
+        "Pmax (W)",
+        min_value=0.0,
+        value=550.0,
+        step=10.0,
+        key="manual_pmax",
     )
 
-    inverter.setdefault(
-        "mppts",
-        [],
+    voc = c[1].number_input(
+        "Voc (V)",
+        min_value=0.0,
+        value=49.5,
+        step=0.1,
+        key="manual_voc",
     )
 
-    # إذا لم توجد بيانات MPPT تفصيلية
-    # ننشئها من عدد MPPT
-    if not inverter["mppts"]:
+    vmp = c[2].number_input(
+        "Vmp (V)",
+        min_value=0.0,
+        value=41.5,
+        step=0.1,
+        key="manual_vmp",
+    )
 
-        count = max(
-            1,
-            safe_int(
-                inverter.get(
-                    "mppt_count",
-                    1,
-                ),
-                1,
-            ),
+    isc = c[3].number_input(
+        "Isc (A)",
+        min_value=0.0,
+        value=14.0,
+        step=0.1,
+        key="manual_isc",
+    )
+
+    imp = c[4].number_input(
+        "Imp (A)",
+        min_value=0.0,
+        value=13.3,
+        step=0.1,
+        key="manual_imp",
+    )
+
+    c = st.columns(2)
+
+    p_brand = c[0].text_input(
+        "شركة اللوح",
+        key="manual_panel_brand",
+    )
+
+    p_model = c[1].text_input(
+        "موديل اللوح",
+        key="manual_panel_model",
+    )
+
+    # -------------------------
+    # INVERTER
+    # -------------------------
+
+    st.markdown("## ⚡ مواصفات الإنفيرتر")
+
+    c = st.columns(4)
+
+    ac_power = c[0].number_input(
+        "AC Rated Power (W)",
+        min_value=0.0,
+        value=5000.0,
+        step=100.0,
+        key="manual_ac_power",
+    )
+
+    dc_max = c[1].number_input(
+        "Max DC Voltage (V)",
+        min_value=0.0,
+        value=500.0,
+        step=10.0,
+        key="manual_dc_max",
+    )
+
+    mppt_min = c[2].number_input(
+        "MPPT Min (V)",
+        min_value=0.0,
+        value=150.0,
+        step=5.0,
+        key="manual_mppt_min",
+    )
+
+    mppt_max = c[3].number_input(
+        "MPPT Max (V)",
+        min_value=0.0,
+        value=425.0,
+        step=5.0,
+        key="manual_mppt_max",
+    )
+
+    c = st.columns(4)
+
+    mppt_current = c[0].number_input(
+        "Max Current / MPPT (A)",
+        min_value=0.0,
+        value=13.0,
+        step=0.5,
+        key="manual_mppt_current",
+    )
+
+    phase = c[1].selectbox(
+        "Phase",
+        [
+            "Single-Phase",
+            "Three-Phase",
+        ],
+        key="manual_phase",
+    )
+
+    inverter_type = c[2].selectbox(
+        "Inverter Type",
+        [
+            "Hybrid",
+            "Off-Grid",
+            "On-Grid",
+        ],
+        key="manual_inverter_type",
+    )
+
+    architecture = c[3].selectbox(
+        "Battery Architecture",
+        [
+            "Low Voltage LV",
+            "High Voltage HV",
+            "غير معروف",
+        ],
+        key="manual_architecture",
+    )
+
+    c = st.columns(2)
+
+    inverter_brand = c[0].text_input(
+        "شركة الإنفيرتر",
+        key="manual_inverter_brand",
+    )
+
+    inverter_model = c[1].text_input(
+        "موديل الإنفيرتر",
+        key="manual_inverter_model",
+    )
+
+    # -------------------------
+    # MPPT
+    # -------------------------
+
+    st.markdown("## 🔀 تكوين MPPT و Strings")
+
+    st.caption(
+        "MPPT1 موجود دائماً. يمكنك إضافة أي عدد من MPPT "
+        "ولكل MPPT عدد Strings مستقل."
+    )
+
+    mppt_count = st.number_input(
+        "عدد MPPT",
+        min_value=1,
+        max_value=32,
+        value=1,
+        step=1,
+        key="manual_mppt_count",
+    )
+
+    string_counts = []
+
+    for i in range(int(mppt_count)):
+
+        cols = st.columns([2, 2, 4])
+
+        with cols[0]:
+            st.markdown(
+                f"### MPPT {i + 1}"
+            )
+
+        with cols[1]:
+            count = st.number_input(
+                f"عدد Strings لـ MPPT {i + 1}",
+                min_value=1,
+                max_value=16,
+                value=1,
+                step=1,
+                key=f"manual_mppt_string_{i}",
+            )
+
+        string_counts.append(int(count))
+
+    # -------------------------
+    # BATTERY INPUT
+    # -------------------------
+
+    battery = {
+        "brand": "غير مستخدمة",
+        "model": "غير مستخدمة",
+        "chemistry": "غير معروف",
+        "capacity_ah": 0,
+        "capacity_kwh": 0,
+        "nominal_voltage_v": 0,
+        "max_charge_current_a": 0,
+        "max_discharge_current_a": 0,
+    }
+
+    if battery_enabled:
+
+        st.markdown("## 🔋 البطارية الخارجية")
+
+        c = st.columns(4)
+
+        b_voltage = c[0].number_input(
+            "Nominal Voltage (V)",
+            min_value=0.0,
+            value=51.2,
+            step=0.1,
+            key="manual_b_voltage",
         )
 
-        inverter["mppts"] = [
-            {
-                "mppt": i,
-                "max_current_a": safe_float(
-                    inverter.get(
-                        "max_mppt_current_a",
-                        0,
-                    )
-                ),
-                "max_voltage_v": safe_float(
-                    inverter.get(
-                        "max_dc_voltage_v",
-                        0,
-                    )
-                ),
-                "max_short_circuit_current_a": 0,
-                "max_strings": 0,
-            }
+        b_ah = c[1].number_input(
+            "Capacity (Ah)",
+            min_value=0.0,
+            value=100.0,
+            step=10.0,
+            key="manual_b_ah",
+        )
 
-            for i in range(
-                1,
-                count + 1,
-            )
-        ]
+        b_kwh = c[2].number_input(
+            "Capacity (kWh)",
+            min_value=0.0,
+            value=5.12,
+            step=0.1,
+            key="manual_b_kwh",
+        )
 
-    inverter["mppt_count"] = len(
-        inverter["mppts"]
+        b_discharge = c[3].number_input(
+            "Max Discharge (A)",
+            min_value=0.0,
+            value=100.0,
+            step=5.0,
+            key="manual_b_discharge",
+        )
+
+        c = st.columns(3)
+
+        b_brand = c[0].text_input(
+            "شركة البطارية",
+            key="manual_b_brand",
+        )
+
+        b_model = c[1].text_input(
+            "موديل البطارية",
+            key="manual_b_model",
+        )
+
+        b_chemistry = c[2].selectbox(
+            "Chemistry",
+            [
+                "LiFePO4",
+                "Lithium-ion",
+                "Gel",
+                "AGM",
+                "Lead-Acid",
+                "غير معروف",
+            ],
+            key="manual_b_chemistry",
+        )
+
+        battery = {
+            "brand": b_brand or "إدخال يدوي",
+            "model": b_model or "Manual Battery",
+            "chemistry": b_chemistry,
+            "capacity_ah": b_ah,
+            "capacity_kwh": b_kwh,
+            "nominal_voltage_v": b_voltage,
+            "max_charge_current_a": 0,
+            "max_discharge_current_a": b_discharge,
+        }
+
+    return {
+        "panel": {
+            "brand": p_brand or "إدخال يدوي",
+            "model": p_model or "Manual Panel",
+            "part_number": "غير معروف",
+            "type": "Manual",
+            "pmax": pmax,
+            "voc": voc,
+            "vmp": vmp,
+            "isc": isc,
+            "imp": imp,
+        },
+
+        "inverter": {
+            "brand": inverter_brand or "إدخال يدوي",
+            "model": inverter_model or "Manual Inverter",
+            "part_number": "غير معروف",
+            "type": inverter_type,
+            "phase_type": phase,
+            "voltage_architecture": architecture,
+            "ac_rated_power_w": ac_power,
+            "v_max": dc_max,
+            "v_mppt_min": mppt_min,
+            "v_mppt_max": mppt_max,
+            "v_start": 0,
+            "mppt_count": int(mppt_count),
+            "strings_per_mppt": max(string_counts),
+            "mppt_strings_config": string_counts,
+            "max_mppt_current": mppt_current,
+
+            "battery": {
+                "supported": inverter_type != "On-Grid",
+                "nominal_voltage_v": (
+                    battery["nominal_voltage_v"]
+                    if battery_enabled
+                    else 0
+                ),
+                "battery_type": (
+                    battery["chemistry"]
+                    if battery_enabled
+                    else "غير مستخدمة"
+                ),
+                "max_charge_current_a": 0,
+            },
+
+            "ac_input_output": {
+                "nominal_ac_voltage_v": "يدوي",
+                "frequency_hz": "50/60",
+                "max_ac_input_current_a": 0,
+                "max_ac_output_current_a": 0,
+            },
+
+            "startup_surge": {
+                "surge_power_va": 0,
+                "duration_seconds": 0,
+            },
+        },
+
+        "external_battery": battery,
+    }
+
+
+# ============================================================
+# 15. INPUT SECTION
+# ============================================================
+
+st.title("☀️ Solar System Designer & Compatibility Checker")
+
+st.caption(
+    "أداة تصميم وفحص منظومات Solar: "
+    "Panel + Inverter + MPPT + Strings + Battery + DC/AC"
+)
+
+
+# ============================================================
+# BATTERY TOGGLE — IMPORTANT
+# ============================================================
+
+st.markdown("## ⚙️ إعدادات الإدخال")
+
+battery_enabled = st.toggle(
+    "🔋 تفعيل البطارية الخارجية في هذه المقارنة",
+    value=st.session_state.get("battery_enabled", False),
+    key="battery_enabled",
+    help=(
+        "إذا أوقفتها فلن يتم طلب صورة البطارية "
+        "ولن تدخل البطارية الخارجية في نتيجة المقارنة."
+    ),
+)
+
+if battery_enabled:
+    st.success(
+        "🔋 البطارية مفعلة — سيتم طلب بيانات/صورة البطارية "
+        "وإجراء فحص التوافق."
+    )
+else:
+    st.info(
+        "🔋 البطارية غير مفعلة — المقارنة ستكون Panel ↔ Inverter "
+        "بدون بطارية خارجية."
     )
 
-    return data
+
+# ============================================================
+# INPUT MODE
+# ============================================================
+
+search_mode = st.radio(
+    "اختر طريقة إدخال البيانات:",
+    [
+        "📸 1. تحليل الصور",
+        "✍️ 2. الشركة والموديل",
+        "🧮 3. إدخال المواصفات يدوياً",
+    ],
+    horizontal=True,
+)
 
 
 # ============================================================
@@ -647,7 +1172,7 @@ def normalize_data(data):
 
 with st.sidebar:
 
-    st.header("⚙️ إعدادات التصميم")
+    st.header("⚙️ إعدادات التطبيق")
 
     api_key = st.text_input(
         "Gemini API Key",
@@ -656,730 +1181,198 @@ with st.sidebar:
 
     st.markdown("---")
 
-    st.subheader("معاملات التصميم")
+    st.header("🧮 الهوامش الهندسية")
 
-    current_safety_factor = st.number_input(
-        "Current Safety Factor",
-        min_value=1.00,
-        max_value=1.50,
-        value=1.25,
-        step=0.01,
-    )
-
-    cold_safety_factor = st.number_input(
-        "Cold Voc Safety Factor",
-        min_value=1.00,
+    cold_factor = st.slider(
+        "معامل Voc في البرد",
+        min_value=1.05,
         max_value=1.30,
-        value=1.00,
-        step=0.01,
-        help=(
-            "يفضل استخدام معامل الحرارة الفعلي. "
-            "يمكن وضع 1.00 إذا كان معامل الحرارة متوفراً."
+        value=float(
+            st.session_state.get("cold_factor", 1.15)
         ),
+        step=0.01,
+        key="cold_factor",
     )
 
-    system_efficiency = st.number_input(
-        "System Efficiency (%)",
-        min_value=50.0,
-        max_value=100.0,
-        value=80.0,
-        step=1.0,
+    voltage_margin = st.slider(
+        "هامش أمان DC Voltage",
+        min_value=0.90,
+        max_value=1.00,
+        value=float(
+            st.session_state.get("voltage_margin", 0.95)
+        ),
+        step=0.01,
+        key="voltage_margin",
     )
 
-    st.markdown("---")
+    mppt_margin = st.slider(
+        "هامش MPPT Min",
+        min_value=1.00,
+        max_value=1.20,
+        value=float(
+            st.session_state.get("mppt_margin", 1.10)
+        ),
+        step=0.01,
+        key="mppt_margin",
+    )
 
     st.caption(
-        "الحسابات مبدئية ويجب مراجعتها مع Datasheets "
-        "والكود الكهربائي المحلي قبل التنفيذ."
+        "هذه هوامش تصميمية وليست بديلاً عن Datasheet."
     )
 
 
 # ============================================================
-# INPUT MODE
+# INPUT: IMAGES
 # ============================================================
 
-st.header("1️⃣ إدخال بيانات النظام")
+uploaded_panel = None
+uploaded_inverter = None
+uploaded_battery = None
 
-input_mode = st.radio(
-    "طريقة إدخال البيانات",
-    [
-        "🧮 Manual Design",
-        "📸 Image / Datasheet",
-        "🔎 Company + Model",
-    ],
-    horizontal=True,
+panel_text = ""
+inverter_text = ""
+battery_text = ""
+
+manual_data = None
+
+
+if "📸" in search_mode:
+
+    st.markdown("## 📸 صور الملصقات")
+
+    columns = (
+        st.columns(3)
+        if battery_enabled
+        else st.columns(2)
+    )
+
+    with columns[0]:
+
+        uploaded_panel = st.file_uploader(
+            "☀️ صورة ملصق اللوح",
+            type=["jpg", "jpeg", "png"],
+            key="uploaded_panel",
+        )
+
+    with columns[1]:
+
+        uploaded_inverter = st.file_uploader(
+            "⚡ صورة ملصق الإنفيرتر",
+            type=["jpg", "jpeg", "png"],
+            key="uploaded_inverter",
+        )
+
+    if battery_enabled:
+
+        with columns[2]:
+
+            uploaded_battery = st.file_uploader(
+                "🔋 صورة ملصق البطارية",
+                type=["jpg", "jpeg", "png"],
+                key="uploaded_battery",
+            )
+
+
+# ============================================================
+# INPUT: TEXT
+# ============================================================
+
+elif "✍️" in search_mode:
+
+    st.markdown("## ✍️ البحث بالموديل")
+
+    columns = (
+        st.columns(3)
+        if battery_enabled
+        else st.columns(2)
+    )
+
+    with columns[0]:
+
+        panel_text = st.text_input(
+            "☀️ الشركة + موديل اللوح",
+            placeholder="Jinko Solar 550W",
+            key="panel_text",
+        )
+
+    with columns[1]:
+
+        inverter_text = st.text_input(
+            "⚡ الشركة + موديل الإنفيرتر",
+            placeholder="Deye 5K",
+            key="inverter_text",
+        )
+
+    if battery_enabled:
+
+        with columns[2]:
+
+            battery_text = st.text_input(
+                "🔋 الشركة + موديل البطارية",
+                placeholder="Pylontech US5000",
+                key="battery_text",
+            )
+
+
+# ============================================================
+# INPUT: MANUAL
+# ============================================================
+
+else:
+
+    manual_data = manual_input_section(
+        battery_enabled
+    )
+
+
+# ============================================================
+# ANALYSIS BUTTON
+# ============================================================
+
+st.markdown("---")
+
+analyze_clicked = st.button(
+    "⚡ تحليل النظام واستخراج التقرير",
+    type="primary",
 )
 
 
-# ============================================================
-# MANUAL INPUT
-# ============================================================
+if analyze_clicked:
 
-if input_mode == "🧮 Manual Design":
+    result = None
 
-    st.subheader(
-        "🧮 Manual Solar Design"
-    )
+    # ---------------------------
+    # MANUAL
+    # ---------------------------
 
-    st.info(
-        "في الوضع اليدوي لا تحتاج إلى Gemini."
-    )
+    if "🧮" in search_mode:
 
-    # --------------------------------------------------------
-    # PANEL
-    # --------------------------------------------------------
+        result = manual_data
 
-    st.markdown("### ☀️ Solar Panel")
+    # ---------------------------
+    # IMAGE
+    # ---------------------------
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    elif "📸" in search_mode:
 
-    with c1:
-
-        panel_pmax = st.number_input(
-            "Pmax (W)",
-            min_value=0.0,
-            value=550.0,
-            step=10.0,
-        )
-
-    with c2:
-
-        panel_voc = st.number_input(
-            "Voc (V)",
-            min_value=0.0,
-            value=49.5,
-            step=0.1,
-        )
-
-    with c3:
-
-        panel_vmp = st.number_input(
-            "Vmp (V)",
-            min_value=0.0,
-            value=41.5,
-            step=0.1,
-        )
-
-    with c4:
-
-        panel_isc = st.number_input(
-            "Isc (A)",
-            min_value=0.0,
-            value=14.0,
-            step=0.1,
-        )
-
-    with c5:
-
-        panel_imp = st.number_input(
-            "Imp (A)",
-            min_value=0.0,
-            value=13.3,
-            step=0.1,
-        )
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    with c1:
-
-        panel_brand = st.text_input(
-            "Panel Brand"
-        )
-
-    with c2:
-
-        panel_model = st.text_input(
-            "Panel Model"
-        )
-
-    with c3:
-
-        panel_voc_coeff = st.number_input(
-            "Voc Temp. Coeff. (%/°C)",
-            value=-0.28,
-            step=0.01,
-        )
-
-    with c4:
-
-        panel_vmp_coeff = st.number_input(
-            "Vmp Temp. Coeff. (%/°C)",
-            value=-0.30,
-            step=0.01,
-        )
-
-    # --------------------------------------------------------
-    # INVERTER
-    # --------------------------------------------------------
-
-    st.markdown("### ⚡ Inverter")
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    with c1:
-
-        inverter_brand = st.text_input(
-            "Inverter Brand"
-        )
-
-    with c2:
-
-        inverter_model = st.text_input(
-            "Inverter Model"
-        )
-
-    with c3:
-
-        inverter_type = st.selectbox(
-            "Inverter Type",
-            [
-                "Hybrid",
-                "Off-Grid",
-                "On-Grid",
-            ],
-        )
-
-    with c4:
-
-        inverter_phase = st.selectbox(
-            "Phase",
-            [
-                "Single Phase",
-                "Three Phase",
-            ],
-        )
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    with c1:
-
-        inverter_ac_power = st.number_input(
-            "AC Rated Power (W)",
-            min_value=0.0,
-            value=5000.0,
-            step=100.0,
-        )
-
-    with c2:
-
-        inverter_dc_max = st.number_input(
-            "Max DC Voltage (V)",
-            min_value=0.0,
-            value=500.0,
-            step=5.0,
-        )
-
-    with c3:
-
-        inverter_mppt_min = st.number_input(
-            "MPPT Min Voltage (V)",
-            min_value=0.0,
-            value=150.0,
-            step=5.0,
-        )
-
-    with c4:
-
-        inverter_mppt_max = st.number_input(
-            "MPPT Max Voltage (V)",
-            min_value=0.0,
-            value=425.0,
-            step=5.0,
-        )
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-
-        inverter_start_voltage = st.number_input(
-            "Start Voltage (V)",
-            min_value=0.0,
-            value=120.0,
-            step=5.0,
-        )
-
-    with c2:
-
-        inverter_global_current = st.number_input(
-            "Default MPPT Max Current (A)",
-            min_value=0.0,
-            value=13.0,
-            step=0.5,
-        )
-
-    # --------------------------------------------------------
-    # MPPT
-    # --------------------------------------------------------
-
-    st.markdown("### 🔀 MPPT Configuration")
-
-    mppt_count = st.number_input(
-        "عدد MPPT",
-        min_value=1,
-        max_value=32,
-        value=3,
-        step=1,
-    )
-
-    manual_mppts = []
-
-    for mppt_no in range(
-        1,
-        int(mppt_count) + 1,
-    ):
-
-        with st.expander(
-            f"⚡ MPPT {mppt_no}",
-            expanded=(
-                mppt_no == 1
-            ),
-        ):
-
-            c1, c2, c3, c4 = st.columns(4)
-
-            with c1:
-
-                strings = st.number_input(
-                    "عدد Strings",
-                    min_value=1,
-                    max_value=32,
-                    value=1,
-                    step=1,
-                    key=f"manual_mppt_strings_{mppt_no}",
-                )
-
-            with c2:
-
-                max_current = st.number_input(
-                    "Max Current (A)",
-                    min_value=0.0,
-                    value=float(
-                        inverter_global_current
-                    ),
-                    step=0.5,
-                    key=f"manual_mppt_current_{mppt_no}",
-                )
-
-            with c3:
-
-                max_voltage = st.number_input(
-                    "Max Voltage (V)",
-                    min_value=0.0,
-                    value=float(
-                        inverter_dc_max
-                    ),
-                    step=5.0,
-                    key=f"manual_mppt_voltage_{mppt_no}",
-                )
-
-            with c4:
-
-                max_isc = st.number_input(
-                    "Max Isc (A)",
-                    min_value=0.0,
-                    value=0.0,
-                    step=0.5,
-                    key=f"manual_mppt_isc_{mppt_no}",
-                )
-
-            manual_mppts.append(
-                {
-                    "mppt": mppt_no,
-                    "strings": int(strings),
-                    "max_current_a": max_current,
-                    "max_voltage_v": max_voltage,
-                    "max_short_circuit_current_a": max_isc,
-                    "max_strings": 0,
-                }
-            )
-
-    # --------------------------------------------------------
-    # SITE
-    # --------------------------------------------------------
-
-    st.markdown("### 🌍 Site")
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    with c1:
-
-        site_min_temp = st.number_input(
-            "Minimum Temperature °C",
-            value=-5.0,
-            step=1.0,
-        )
-
-    with c2:
-
-        site_max_temp = st.number_input(
-            "Maximum Temperature °C",
-            value=45.0,
-            step=1.0,
-        )
-
-    with c3:
-
-        site_psh = st.number_input(
-            "Peak Sun Hours",
-            min_value=0.1,
-            value=5.0,
-            step=0.1,
-        )
-
-    with c4:
-
-        site_efficiency = st.number_input(
-            "System Efficiency %",
-            min_value=50.0,
-            max_value=100.0,
-            value=float(
-                system_efficiency
-            ),
-            step=1.0,
-        )
-
-    # --------------------------------------------------------
-    # LOADS
-    # --------------------------------------------------------
-
-    st.markdown("### 🏠 Loads")
-
-    load_count = st.number_input(
-        "عدد الأحمال",
-        min_value=0,
-        max_value=50,
-        value=4,
-        step=1,
-    )
-
-    manual_loads = []
-
-    for load_no in range(
-        1,
-        int(load_count) + 1,
-    ):
-
-        c1, c2, c3, c4 = st.columns(4)
-
-        with c1:
-
-            load_name = st.text_input(
-                "الحمل",
-                value=f"Load {load_no}",
-                key=f"load_name_{load_no}",
-            )
-
-        with c2:
-
-            load_power = st.number_input(
-                "Power W",
-                min_value=0.0,
-                value=100.0,
-                step=10.0,
-                key=f"load_power_{load_no}",
-            )
-
-        with c3:
-
-            load_qty = st.number_input(
-                "Quantity",
-                min_value=1,
-                value=1,
-                step=1,
-                key=f"load_qty_{load_no}",
-            )
-
-        with c4:
-
-            load_hours = st.number_input(
-                "Hours/day",
-                min_value=0.0,
-                value=4.0,
-                step=0.5,
-                key=f"load_hours_{load_no}",
-            )
-
-        manual_loads.append(
-            {
-                "name": load_name,
-                "power_w": load_power,
-                "quantity": load_qty,
-                "hours_per_day": load_hours,
-            }
-        )
-
-    # --------------------------------------------------------
-    # BATTERY ENABLE / DISABLE
-    # --------------------------------------------------------
-
-    st.markdown("### 🔋 Battery")
-
-    battery_enabled_manual = st.toggle(
-        "تفعيل قسم البطارية",
-        value=True,
-        help=(
-            "عند إيقافه سيتم تجاهل البطارية بالكامل "
-            "في التصميم والفحوصات."
-        ),
-    )
-
-    manual_battery = {
-        "enabled": battery_enabled_manual,
-        "brand": "",
-        "model": "",
-        "chemistry": "",
-        "nominal_voltage_v": 0,
-        "capacity_ah": 0,
-        "capacity_kwh": 0,
-        "max_charge_current_a": 0,
-        "max_discharge_current_a": 0,
-        "recommended_dod_pct": 80,
-    }
-
-    if battery_enabled_manual:
-
-        c1, c2, c3 = st.columns(3)
-
-        with c1:
-
-            manual_battery[
-                "brand"
-            ] = st.text_input(
-                "Battery Brand"
-            )
-
-        with c2:
-
-            manual_battery[
-                "model"
-            ] = st.text_input(
-                "Battery Model"
-            )
-
-        with c3:
-
-            manual_battery[
-                "chemistry"
-            ] = st.text_input(
-                "Chemistry",
-                value="LiFePO4",
-            )
-
-        c1, c2, c3, c4 = st.columns(4)
-
-        with c1:
-
-            manual_battery[
-                "nominal_voltage_v"
-            ] = st.number_input(
-                "Nominal Voltage V",
-                min_value=0.0,
-                value=51.2,
-                step=0.1,
-            )
-
-        with c2:
-
-            manual_battery[
-                "capacity_ah"
-            ] = st.number_input(
-                "Capacity Ah",
-                min_value=0.0,
-                value=200.0,
-                step=10.0,
-            )
-
-        with c3:
-
-            manual_battery[
-                "capacity_kwh"
-            ] = st.number_input(
-                "Capacity kWh",
-                min_value=0.0,
-                value=0.0,
-                step=0.1,
-            )
-
-        with c4:
-
-            manual_battery[
-                "recommended_dod_pct"
-            ] = st.number_input(
-                "DoD %",
-                min_value=1.0,
-                max_value=100.0,
-                value=80.0,
-                step=1.0,
-            )
-
-        c1, c2 = st.columns(2)
-
-        with c1:
-
-            manual_battery[
-                "max_charge_current_a"
-            ] = st.number_input(
-                "Max Charge Current A",
-                min_value=0.0,
-                value=100.0,
-                step=5.0,
-            )
-
-        with c2:
-
-            manual_battery[
-                "max_discharge_current_a"
-            ] = st.number_input(
-                "Max Discharge Current A",
-                min_value=0.0,
-                value=200.0,
-                step=5.0,
-            )
-
-    # --------------------------------------------------------
-    # BUILD MANUAL DATA
-    # --------------------------------------------------------
-
-    result = {
-        "panel": {
-            "brand": panel_brand,
-            "model": panel_model,
-            "pmax_w": panel_pmax,
-            "voc_v": panel_voc,
-            "vmp_v": panel_vmp,
-            "isc_a": panel_isc,
-            "imp_a": panel_imp,
-            "voc_temp_coeff_pct_per_c":
-                panel_voc_coeff,
-            "vmp_temp_coeff_pct_per_c":
-                panel_vmp_coeff,
-        },
-
-        "inverter": {
-            "brand": inverter_brand,
-            "model": inverter_model,
-            "type": inverter_type,
-            "phase_type": inverter_phase,
-            "ac_rated_power_w":
-                inverter_ac_power,
-            "max_dc_voltage_v":
-                inverter_dc_max,
-            "mppt_voltage_min_v":
-                inverter_mppt_min,
-            "mppt_voltage_max_v":
-                inverter_mppt_max,
-            "start_voltage_v":
-                inverter_start_voltage,
-            "mppt_count":
-                int(mppt_count),
-            "mppts":
-                manual_mppts,
-
-            "battery": {
-                "supported":
-                    inverter_type != "On-Grid",
-                "nominal_voltage_v":
-                    manual_battery[
-                        "nominal_voltage_v"
-                    ],
-                "min_voltage_v": 0,
-                "max_voltage_v": 0,
-                "max_charge_current_a": 0,
-                "max_discharge_current_a": 0,
-            },
-        },
-
-        "battery":
-            manual_battery,
-
-        "site": {
-            "min_temperature_c":
-                site_min_temp,
-            "max_temperature_c":
-                site_max_temp,
-            "peak_sun_hours":
-                site_psh,
-            "system_efficiency_pct":
-                site_efficiency,
-        },
-
-        "loads":
-            manual_loads,
-    }
-
-    st.session_state[
-        "approved_data"
-    ] = normalize_data(result)
-
-
-# ============================================================
-# IMAGE MODE
-# ============================================================
-
-elif input_mode == "📸 Image / Datasheet":
-
-    st.subheader(
-        "📸 قراءة Datasheet / Label"
-    )
-
-    if not GEMINI_AVAILABLE:
-
-        st.error(
-            "google-genai غير مثبتة."
-        )
-
-        st.code(
-            "pip install -U google-genai"
-        )
-
-    panel_file = st.file_uploader(
-        "☀️ صورة Solar Panel",
-        type=[
-            "png",
-            "jpg",
-            "jpeg",
-            "webp",
-        ],
-    )
-
-    inverter_file = st.file_uploader(
-        "⚡ صورة Inverter",
-        type=[
-            "png",
-            "jpg",
-            "jpeg",
-            "webp",
-        ],
-    )
-
-    battery_file = st.file_uploader(
-        "🔋 صورة Battery — اختياري",
-        type=[
-            "png",
-            "jpg",
-            "jpeg",
-            "webp",
-        ],
-    )
-
-    if st.button(
-        "🚀 استخراج المواصفات",
-        type="primary",
-    ):
-
-        if not api_key:
-
+        if not uploaded_panel:
             st.error(
-                "أدخل Gemini API Key."
+                "❌ يرجى رفع صورة اللوح."
             )
 
-        elif (
-            panel_file is None
-            or inverter_file is None
-        ):
-
+        elif not uploaded_inverter:
             st.error(
-                "يجب إدخال صورة اللوح والإنفيرتر."
+                "❌ يرجى رفع صورة الإنفيرتر."
+            )
+
+        elif battery_enabled and not uploaded_battery:
+            st.error(
+                "❌ البطارية مفعلة، يرجى رفع صورة البطارية."
+            )
+
+        elif not api_key:
+            st.error(
+                "❌ أدخل Gemini API Key في القائمة الجانبية."
             )
 
         else:
@@ -1387,98 +1380,71 @@ elif input_mode == "📸 Image / Datasheet":
             try:
 
                 panel_img = Image.open(
-                    panel_file
+                    uploaded_panel
                 )
 
                 inverter_img = Image.open(
-                    inverter_file
+                    uploaded_inverter
                 )
 
-                battery_img = None
-
-                if battery_file:
-
-                    battery_img = Image.open(
-                        battery_file
-                    )
+                battery_img = (
+                    Image.open(uploaded_battery)
+                    if battery_enabled and uploaded_battery
+                    else None
+                )
 
                 with st.spinner(
-                    "جاري تحليل الصور... "
-                    "سيتم تجربة نموذج احتياطي إذا حدث 503."
+                    "🔍 جاري تحليل الصور..."
                 ):
 
-                    extracted = (
-                        extract_from_images(
-                            panel_img,
-                            inverter_img,
-                            battery_img,
-                            api_key,
-                        )
+                    result = extract_from_images(
+                        panel_img,
+                        inverter_img,
+                        battery_img,
+                        api_key,
                     )
 
-                st.session_state[
-                    "extracted_data"
-                ] = normalize_data(
-                    extracted
-                )
-
-                st.success(
-                    "تم استخراج البيانات. "
-                    "راجعها قبل اعتمادها."
-                )
-
-            except Exception as error:
+            except Exception as exc:
 
                 st.error(
-                    f"تعذر استخراج البيانات:\n{error}"
+                    "❌ حدث خطأ أثناء تحليل الصور."
+                )
+
+                st.code(
+                    str(exc),
+                    language="text",
                 )
 
                 st.info(
-                    "يمكنك الانتقال إلى Manual Design "
-                    "وإدخال البيانات يدوياً."
+                    "إذا ظهر خطأ 503 من Gemini، "
+                    "فهذا يعني أن النموذج غير متاح مؤقتاً "
+                    "أو تحت ضغط. حاول مرة أخرى لاحقاً."
                 )
 
+    # ---------------------------
+    # TEXT
+    # ---------------------------
 
-# ============================================================
-# TEXT MODE
-# ============================================================
+    else:
 
-elif input_mode == "🔎 Company + Model":
-
-    st.subheader(
-        "🔎 البحث بالموديل"
-    )
-
-    panel_query = st.text_input(
-        "Solar Panel — Brand + Model"
-    )
-
-    inverter_query = st.text_input(
-        "Inverter — Brand + Model"
-    )
-
-    battery_query = st.text_input(
-        "Battery — Brand + Model — اختياري"
-    )
-
-    if st.button(
-        "🔍 استخراج المواصفات",
-        type="primary",
-    ):
-
-        if not api_key:
-
+        if not panel_text:
             st.error(
-                "أدخل Gemini API Key."
+                "❌ أدخل اسم وموديل اللوح."
             )
 
-        elif (
-            not panel_query
-            or not inverter_query
-        ):
-
+        elif not inverter_text:
             st.error(
-                "أدخل موديل اللوح والإنفيرتر."
+                "❌ أدخل اسم وموديل الإنفيرتر."
+            )
+
+        elif battery_enabled and not battery_text:
+            st.error(
+                "❌ البطارية مفعلة، أدخل اسم وموديل البطارية."
+            )
+
+        elif not api_key:
+            st.error(
+                "❌ أدخل Gemini API Key."
             )
 
         else:
@@ -1486,2620 +1452,1498 @@ elif input_mode == "🔎 Company + Model":
             try:
 
                 with st.spinner(
-                    "جاري البحث عن المواصفات..."
+                    "🔍 جاري استخراج المواصفات..."
                 ):
 
-                    extracted = (
-                        extract_from_text(
-                            panel_query,
-                            inverter_query,
-                            battery_query,
-                            api_key,
-                        )
+                    result = extract_from_text(
+                        panel_text,
+                        inverter_text,
+                        battery_text
+                        if battery_enabled
+                        else "",
+                        api_key,
                     )
 
-                st.session_state[
-                    "extracted_data"
-                ] = normalize_data(
-                    extracted
-                )
-
-                st.success(
-                    "تم استخراج البيانات."
-                )
-
-            except Exception as error:
+            except Exception as exc:
 
                 st.error(
-                    f"تعذر استخراج البيانات:\n{error}"
+                    "❌ حدث خطأ أثناء استخراج البيانات."
                 )
 
-
-# ============================================================
-# GEMINI REVIEW SCREEN
-# ============================================================
-
-if st.session_state[
-    "extracted_data"
-] is not None:
-
-    st.markdown("---")
-
-    st.header(
-        "2️⃣ مراجعة بيانات Gemini قبل اعتمادها"
-    )
-
-    st.warning(
-        "لا تبدأ الحسابات مباشرة من بيانات الذكاء الاصطناعي. "
-        "راجع القيم مع Datasheet، وعدل أي قيمة غير صحيحة."
-    )
-
-    extracted = deepcopy(
-        st.session_state[
-            "extracted_data"
-        ]
-    )
-
-    panel = extracted[
-        "panel"
-    ]
-
-    inverter = extracted[
-        "inverter"
-    ]
-
-    battery = extracted[
-        "battery"
-    ]
-
-    # --------------------------------------------------------
-    # PANEL REVIEW
-    # --------------------------------------------------------
-
-    st.subheader(
-        "☀️ Panel Data"
-    )
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-
-    with c1:
-
-        panel["pmax_w"] = st.number_input(
-            "Pmax W",
-            value=safe_float(
-                panel.get(
-                    "pmax_w"
+                st.code(
+                    str(exc),
+                    language="text",
                 )
-            ),
-            key="review_pmax",
-        )
 
-    with c2:
+    if result:
 
-        panel["voc_v"] = st.number_input(
-            "Voc V",
-            value=safe_float(
-                panel.get(
-                    "voc_v"
-                )
-            ),
-            key="review_voc",
-        )
+        # إذا البطارية غير مفعلة، نجبر البيانات الخارجية
+        # على أن تكون غير مستخدمة.
+        if not battery_enabled:
 
-    with c3:
-
-        panel["vmp_v"] = st.number_input(
-            "Vmp V",
-            value=safe_float(
-                panel.get(
-                    "vmp_v"
-                )
-            ),
-            key="review_vmp",
-        )
-
-    with c4:
-
-        panel["isc_a"] = st.number_input(
-            "Isc A",
-            value=safe_float(
-                panel.get(
-                    "isc_a"
-                )
-            ),
-            key="review_isc",
-        )
-
-    with c5:
-
-        panel["imp_a"] = st.number_input(
-            "Imp A",
-            value=safe_float(
-                panel.get(
-                    "imp_a"
-                )
-            ),
-            key="review_imp",
-        )
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-
-        panel[
-            "voc_temp_coeff_pct_per_c"
-        ] = st.number_input(
-            "Voc Temp Coeff. %/°C",
-            value=safe_float(
-                panel.get(
-                    "voc_temp_coeff_pct_per_c"
-                )
-            ),
-            step=0.01,
-            key="review_voc_coeff",
-        )
-
-    with c2:
-
-        panel[
-            "vmp_temp_coeff_pct_per_c"
-        ] = st.number_input(
-            "Vmp Temp Coeff. %/°C",
-            value=safe_float(
-                panel.get(
-                    "vmp_temp_coeff_pct_per_c"
-                )
-            ),
-            step=0.01,
-            key="review_vmp_coeff",
-        )
-
-    # --------------------------------------------------------
-    # INVERTER REVIEW
-    # --------------------------------------------------------
-
-    st.subheader(
-        "⚡ Inverter Data"
-    )
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    with c1:
-
-        inverter[
-            "ac_rated_power_w"
-        ] = st.number_input(
-            "AC Rated Power W",
-            value=safe_float(
-                inverter.get(
-                    "ac_rated_power_w"
-                )
-            ),
-            key="review_ac_power",
-        )
-
-    with c2:
-
-        inverter[
-            "max_dc_voltage_v"
-        ] = st.number_input(
-            "Max DC Voltage V",
-            value=safe_float(
-                inverter.get(
-                    "max_dc_voltage_v"
-                )
-            ),
-            key="review_dc_voltage",
-        )
-
-    with c3:
-
-        inverter[
-            "mppt_voltage_min_v"
-        ] = st.number_input(
-            "MPPT Min V",
-            value=safe_float(
-                inverter.get(
-                    "mppt_voltage_min_v"
-                )
-            ),
-            key="review_mppt_min",
-        )
-
-    with c4:
-
-        inverter[
-            "mppt_voltage_max_v"
-        ] = st.number_input(
-            "MPPT Max V",
-            value=safe_float(
-                inverter.get(
-                    "mppt_voltage_max_v"
-                )
-            ),
-            key="review_mppt_max",
-        )
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-
-        inverter[
-            "start_voltage_v"
-        ] = st.number_input(
-            "Start Voltage V",
-            value=safe_float(
-                inverter.get(
-                    "start_voltage_v"
-                )
-            ),
-            key="review_start_voltage",
-        )
-
-    with c2:
-
-        inverter[
-            "mppt_count"
-        ] = st.number_input(
-            "Number of MPPT",
-            min_value=1,
-            max_value=32,
-            value=max(
-                1,
-                safe_int(
-                    inverter.get(
-                        "mppt_count"
-                    ),
-                    1,
-                ),
-            ),
-            key="review_mppt_count",
-        )
-
-    # --------------------------------------------------------
-    # MPPT REVIEW
-    # --------------------------------------------------------
-
-    st.subheader(
-        "🔀 MPPT Data"
-    )
-
-    existing_mppts = inverter.get(
-        "mppts",
-        [],
-    )
-
-    while len(existing_mppts) < int(
-        inverter["mppt_count"]
-    ):
-
-        n = len(existing_mppts) + 1
-
-        existing_mppts.append(
-            {
-                "mppt": n,
-                "max_current_a": 0,
-                "max_voltage_v":
-                    inverter.get(
-                        "max_dc_voltage_v",
-                        0,
-                    ),
-                "max_short_circuit_current_a": 0,
-                "max_strings": 0,
+            result["external_battery"] = {
+                "brand": "غير مستخدمة",
+                "model": "غير مستخدمة",
+                "chemistry": "غير مستخدمة",
+                "capacity_ah": 0,
+                "capacity_kwh": 0,
+                "nominal_voltage_v": 0,
+                "max_charge_current_a": 0,
+                "max_discharge_current_a": 0,
             }
-        )
 
-    existing_mppts = existing_mppts[
-        : int(inverter["mppt_count"])
-    ]
-
-    reviewed_mppts = []
-
-    for i, mppt in enumerate(
-        existing_mppts,
-        start=1,
-    ):
-
-        with st.expander(
-            f"MPPT {i}",
-            expanded=(
-                i == 1
-            ),
-        ):
-
-            c1, c2, c3, c4 = st.columns(4)
-
-            with c1:
-
-                mppt_current = st.number_input(
-                    "Max Current A",
-                    value=safe_float(
-                        mppt.get(
-                            "max_current_a"
-                        )
-                    ),
-                    key=f"review_mppt_i_{i}",
-                )
-
-            with c2:
-
-                mppt_voltage = st.number_input(
-                    "Max Voltage V",
-                    value=safe_float(
-                        mppt.get(
-                            "max_voltage_v"
-                        )
-                    ),
-                    key=f"review_mppt_v_{i}",
-                )
-
-            with c3:
-
-                mppt_isc = st.number_input(
-                    "Max Isc A",
-                    value=safe_float(
-                        mppt.get(
-                            "max_short_circuit_current_a"
-                        )
-                    ),
-                    key=f"review_mppt_isc_{i}",
-                )
-
-            with c4:
-
-                mppt_max_strings = st.number_input(
-                    "Max Strings",
-                    min_value=0,
-                    value=max(
-                        0,
-                        safe_int(
-                            mppt.get(
-                                "max_strings"
-                            )
-                        )
-                    ),
-                    key=f"review_mppt_strings_{i}",
-                )
-
-            reviewed_mppts.append(
-                {
-                    "mppt": i,
-                    "max_current_a":
-                        mppt_current,
-                    "max_voltage_v":
-                        mppt_voltage,
-                    "max_short_circuit_current_a":
-                        mppt_isc,
-                    "max_strings":
-                        mppt_max_strings,
-                }
-            )
-
-    inverter[
-        "mppts"
-    ] = reviewed_mppts
-
-    # --------------------------------------------------------
-    # BATTERY REVIEW
-    # --------------------------------------------------------
-
-    st.subheader(
-        "🔋 Battery"
-    )
-
-    battery_enabled_ai = st.toggle(
-        "تفعيل البطارية",
-        value=bool(
-            battery.get(
-                "enabled",
-                True,
-            )
-        ),
-        key="review_battery_enabled",
-    )
-
-    battery[
-        "enabled"
-    ] = battery_enabled_ai
-
-    if battery_enabled_ai:
-
-        c1, c2, c3, c4 = st.columns(4)
-
-        with c1:
-
-            battery[
-                "nominal_voltage_v"
-            ] = st.number_input(
-                "Battery Voltage V",
-                value=safe_float(
-                    battery.get(
-                        "nominal_voltage_v"
-                    )
-                ),
-                key="review_battery_voltage",
-            )
-
-        with c2:
-
-            battery[
-                "capacity_ah"
-            ] = st.number_input(
-                "Capacity Ah",
-                value=safe_float(
-                    battery.get(
-                        "capacity_ah"
-                    )
-                ),
-                key="review_battery_ah",
-            )
-
-        with c3:
-
-            battery[
-                "capacity_kwh"
-            ] = st.number_input(
-                "Capacity kWh",
-                value=safe_float(
-                    battery.get(
-                        "capacity_kwh"
-                    )
-                ),
-                key="review_battery_kwh",
-            )
-
-        with c4:
-
-            battery[
-                "recommended_dod_pct"
-            ] = st.number_input(
-                "DoD %",
-                min_value=1.0,
-                max_value=100.0,
-                value=safe_float(
-                    battery.get(
-                        "recommended_dod_pct"
-                    ),
-                    80,
-                ),
-                key="review_battery_dod",
-            )
-
-    # --------------------------------------------------------
-    # SITE
-    # --------------------------------------------------------
-
-    st.subheader(
-        "🌍 Site"
-    )
-
-    site = extracted.setdefault(
-        "site",
-        {},
-    )
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    with c1:
-
-        site[
-            "min_temperature_c"
-        ] = st.number_input(
-            "Minimum Temp °C",
-            value=safe_float(
-                site.get(
-                    "min_temperature_c"
-                ),
-                -5,
-            ),
-            key="review_min_temp",
-        )
-
-    with c2:
-
-        site[
-            "max_temperature_c"
-        ] = st.number_input(
-            "Maximum Temp °C",
-            value=safe_float(
-                site.get(
-                    "max_temperature_c"
-                ),
-                45,
-            ),
-            key="review_max_temp",
-        )
-
-    with c3:
-
-        site[
-            "peak_sun_hours"
-        ] = st.number_input(
-            "Peak Sun Hours",
-            min_value=0.1,
-            value=safe_float(
-                site.get(
-                    "peak_sun_hours"
-                ),
-                5,
-            ),
-            key="review_psh",
-        )
-
-    with c4:
-
-        site[
-            "system_efficiency_pct"
-        ] = st.number_input(
-            "System Efficiency %",
-            min_value=50.0,
-            max_value=100.0,
-            value=safe_float(
-                site.get(
-                    "system_efficiency_pct"
-                ),
-                80,
-            ),
-            key="review_efficiency",
-        )
-
-    # --------------------------------------------------------
-    # APPROVE
-    # --------------------------------------------------------
-
-    extracted[
-        "panel"
-    ] = panel
-
-    extracted[
-        "inverter"
-    ] = inverter
-
-    extracted[
-        "battery"
-    ] = battery
-
-    extracted[
-        "site"
-    ] = site
-
-    if st.button(
-        "✅ اعتماد البيانات والانتقال للتصميم",
-        type="primary",
-    ):
-
-        st.session_state[
-            "approved_data"
-        ] = normalize_data(
-            extracted
-        )
+        st.session_state["analysis_result"] = result
 
         st.success(
-            "تم اعتماد البيانات."
+            "✅ تم تحليل البيانات بنجاح."
         )
 
 
 # ============================================================
-# STOP IF NO APPROVED DATA
+# RESULTS
 # ============================================================
 
-if st.session_state[
-    "approved_data"
-] is None:
+if st.session_state.get("analysis_result"):
 
-    st.info(
-        "أدخل البيانات أو اعتمد البيانات المستخرجة للمتابعة."
+    result = st.session_state["analysis_result"]
+
+    panel = result.get("panel", {}) or {}
+    inverter = result.get("inverter", {}) or {}
+    battery = result.get("external_battery", {}) or {}
+    inverter_battery = inverter.get(
+        "battery",
+        {}
+    ) or {}
+
+    # ========================================================
+    # EXTRACT PANEL
+    # ========================================================
+
+    p_brand = safe_text(
+        panel.get("brand")
     )
 
-    st.stop()
-
-
-# ============================================================
-# APPROVED DATA
-# ============================================================
-
-data = normalize_data(
-    st.session_state[
-        "approved_data"
-    ]
-)
-
-panel = data[
-    "panel"
-]
-
-inverter = data[
-    "inverter"
-]
-
-battery = data[
-    "battery"
-]
-
-site = data[
-    "site"
-]
-
-loads = data.get(
-    "loads",
-    [],
-)
-
-
-# ============================================================
-# ENGINEERING INPUTS
-# ============================================================
-
-pmax = safe_float(
-    panel.get(
-        "pmax_w"
+    p_model = safe_text(
+        panel.get("model")
     )
-)
-
-voc = safe_float(
-    panel.get(
-        "voc_v"
-    )
-)
-
-vmp = safe_float(
-    panel.get(
-        "vmp_v"
-    )
-)
-
-isc = safe_float(
-    panel.get(
-        "isc_a"
-    )
-)
-
-imp = safe_float(
-    panel.get(
-        "imp_a"
-    )
-)
-
-voc_coeff = safe_float(
-    panel.get(
-        "voc_temp_coeff_pct_per_c"
-    )
-)
-
-vmp_coeff = safe_float(
-    panel.get(
-        "vmp_temp_coeff_pct_per_c"
-    )
-)
-
-max_dc_voltage = safe_float(
-    inverter.get(
-        "max_dc_voltage_v"
-    )
-)
-
-mppt_min_voltage = safe_float(
-    inverter.get(
-        "mppt_voltage_min_v"
-    )
-)
-
-mppt_max_voltage = safe_float(
-    inverter.get(
-        "mppt_voltage_max_v"
-    )
-)
-
-start_voltage = safe_float(
-    inverter.get(
-        "start_voltage_v"
-    )
-)
-
-ac_power = safe_float(
-    inverter.get(
-        "ac_rated_power_w"
-    )
-)
-
-mppts = inverter.get(
-    "mppts",
-    [],
-)
-
-
-# ============================================================
-# TEMPERATURE CORRECTION
-# ============================================================
-
-min_temperature = safe_float(
-    site.get(
-        "min_temperature_c"
-    ),
-    -5,
-)
-
-max_temperature = safe_float(
-    site.get(
-        "max_temperature_c"
-    ),
-    45,
-)
-
-
-# Voc at cold temperature
-#
-# If coefficient is negative:
-# Voc increases when temperature decreases.
-# ============================================================
-
-if voc > 0:
-
-    if voc_coeff != 0:
-
-        voc_cold_panel = (
-            voc *
-            (
-                1
-                +
-                (
-                    abs(voc_coeff)
-                    / 100
-                    *
-                    (
-                        25
-                        -
-                        min_temperature
-                    )
-                )
-            )
-        )
-
-    else:
-
-        voc_cold_panel = (
-            voc *
-            cold_safety_factor
-        )
-
-else:
-
-    voc_cold_panel = 0
-
-
-# Vmp at hot temperature
-#
-# Usually Vmp decreases with increasing temperature.
-# ============================================================
-
-if vmp > 0:
-
-    if vmp_coeff != 0:
-
-        vmp_hot_panel = (
-            vmp *
-            (
-                1
-                +
-                (
-                    vmp_coeff
-                    / 100
-                    *
-                    (
-                        max_temperature
-                        -
-                        25
-                    )
-                )
-            )
-        )
-
-    else:
-
-        vmp_hot_panel = vmp
-
-else:
-
-    vmp_hot_panel = 0
-
-
-# ============================================================
-# STRING MIN / MAX
-# ============================================================
-
-if vmp_hot_panel > 0 and mppt_min_voltage > 0:
-
-    min_by_mppt = math.ceil(
-        mppt_min_voltage /
-        vmp_hot_panel
-    )
-
-else:
-
-    min_by_mppt = 1
-
-
-if vmp > 0 and mppt_max_voltage > 0:
-
-    max_by_mppt = math.floor(
-        mppt_max_voltage /
-        vmp
-    )
-
-else:
-
-    max_by_mppt = 999
-
-
-if voc_cold_panel > 0 and max_dc_voltage > 0:
-
-    max_by_dc = math.floor(
-        max_dc_voltage /
-        voc_cold_panel
-    )
-
-else:
-
-    max_by_dc = 999
-
-
-if vmp > 0 and start_voltage > 0:
-
-    min_by_start = math.ceil(
-        start_voltage /
-        vmp
-    )
-
-else:
-
-    min_by_start = 1
-
-
-min_panels_per_string = max(
-    1,
-    min_by_mppt,
-    min_by_start,
-)
-
-max_panels_per_string = min(
-    max_by_mppt,
-    max_by_dc,
-)
-
-
-# ============================================================
-# MAIN DESIGN CONTROLS
-# ============================================================
-
-st.markdown("---")
-
-st.header(
-    "3️⃣ PV String Design"
-)
-
-if (
-    max_panels_per_string
-    < min_panels_per_string
-):
-
-    st.error(
-        "🔴 لا يوجد عدد ألواح/سترينج صالح يحقق "
-        "حدود MPPT و Max DC Voltage."
-    )
-
-    st.write(
-        f"Minimum = {min_panels_per_string}"
-    )
-
-    st.write(
-        f"Maximum = {max_panels_per_string}"
-    )
-
-    st.stop()
-
-
-# ============================================================
-# NUMBER OF PANELS PER STRING
-# ============================================================
-
-c1, c2, c3 = st.columns(3)
-
-with c1:
-
-    selected_panels_per_string = st.number_input(
-        "عدد الألواح في كل String",
-        min_value=int(
-            min_panels_per_string
-        ),
-        max_value=int(
-            max_panels_per_string
-        ),
-        value=int(
-            min_panels_per_string
-        ),
-        step=1,
-    )
-
-with c2:
-
-    st.metric(
-        "الحد الأدنى",
-        f"{min_panels_per_string} Panel/String",
-    )
-
-with c3:
-
-    st.metric(
-        "الحد الأقصى",
-        f"{max_panels_per_string} Panel/String",
-    )
-
-
-# ============================================================
-# TOTAL STRINGS
-# ============================================================
-
-total_strings = 0
-
-for mppt in mppts:
-
-    total_strings += max(
-        1,
-        safe_int(
-            mppt.get(
-                "strings"
-            ),
-            1,
-        ),
-    )
-
-
-# ============================================================
-# PV DESIGN CALCULATOR
-# ============================================================
-
-def calculate_design(
-    panels_per_string,
-    panel,
-    inverter,
-    mppts,
-    site,
-    battery,
-    loads,
-    current_safety_factor,
-):
 
     pmax = safe_float(
-        panel.get(
-            "pmax_w"
-        )
+        panel.get("pmax")
     )
 
     voc = safe_float(
-        panel.get(
-            "voc_v"
-        )
+        panel.get("voc")
     )
 
     vmp = safe_float(
-        panel.get(
-            "vmp_v"
-        )
+        panel.get("vmp")
     )
 
     isc = safe_float(
-        panel.get(
-            "isc_a"
-        )
+        panel.get("isc")
     )
 
     imp = safe_float(
-        panel.get(
-            "imp_a"
-        )
+        panel.get("imp")
     )
 
-    voc_coeff = safe_float(
-        panel.get(
-            "voc_temp_coeff_pct_per_c"
-        )
+    # ========================================================
+    # EXTRACT INVERTER
+    # ========================================================
+
+    i_brand = safe_text(
+        inverter.get("brand")
     )
 
-    vmp_coeff = safe_float(
-        panel.get(
-            "vmp_temp_coeff_pct_per_c"
-        )
+    i_model = safe_text(
+        inverter.get("model")
     )
 
-    min_temp = safe_float(
-        site.get(
-            "min_temperature_c"
-        ),
-        -5,
+    inverter_type = safe_text(
+        inverter.get("type")
     )
 
-    max_temp = safe_float(
-        site.get(
-            "max_temperature_c"
-        ),
-        45,
+    phase_type = safe_text(
+        inverter.get("phase_type")
     )
 
-    mppt_min = safe_float(
-        inverter.get(
-            "mppt_voltage_min_v"
-        )
-    )
-
-    mppt_max = safe_float(
-        inverter.get(
-            "mppt_voltage_max_v"
-        )
-    )
-
-    max_dc = safe_float(
-        inverter.get(
-            "max_dc_voltage_v"
-        )
-    )
-
-    start = safe_float(
-        inverter.get(
-            "start_voltage_v"
-        )
+    architecture = safe_text(
+        inverter.get("voltage_architecture")
     )
 
     ac_power = safe_float(
-        inverter.get(
-            "ac_rated_power_w"
-        )
+        inverter.get("ac_rated_power_w")
     )
 
-    # --------------------------------------------------------
-    # Temperature corrected panel values
-    # --------------------------------------------------------
-
-    if voc_coeff != 0:
-
-        cold_voc_panel = (
-            voc *
-            (
-                1
-                +
-                abs(voc_coeff)
-                / 100
-                *
-                (
-                    25
-                    -
-                    min_temp
-                )
-            )
-        )
-
-    else:
-
-        cold_voc_panel = (
-            voc *
-            cold_safety_factor
-        )
-
-    if vmp_coeff != 0:
-
-        hot_vmp_panel = (
-            vmp *
-            (
-                1
-                +
-                vmp_coeff
-                / 100
-                *
-                (
-                    max_temp
-                    -
-                    25
-                )
-            )
-        )
-
-    else:
-
-        hot_vmp_panel = vmp
-
-    # --------------------------------------------------------
-    # String electrical values
-    # --------------------------------------------------------
-
-    string_vmp = (
-        panels_per_string *
-        vmp
+    dc_max = safe_float(
+        inverter.get("v_max")
     )
 
-    string_hot_vmp = (
-        panels_per_string *
-        hot_vmp_panel
+    mppt_min = safe_float(
+        inverter.get("v_mppt_min")
     )
 
-    string_voc = (
-        panels_per_string *
-        voc
+    mppt_max = safe_float(
+        inverter.get("v_mppt_max")
     )
 
-    string_cold_voc = (
-        panels_per_string *
-        cold_voc_panel
+    max_mppt_current = safe_float(
+        inverter.get("max_mppt_current")
     )
 
-    # --------------------------------------------------------
-    # Total strings
-    # --------------------------------------------------------
-
-    total_strings = 0
-
-    for mppt in mppts:
-
-        total_strings += max(
+    detected_mppt_count = max(
+        1,
+        safe_int(
+            inverter.get("mppt_count"),
             1,
-            safe_int(
-                mppt.get(
-                    "strings"
-                ),
-                1,
-            ),
-        )
-
-    total_panels = (
-        total_strings *
-        panels_per_string
-    )
-
-    pv_kw = (
-        total_panels *
-        pmax /
-        1000
-    )
-
-    # --------------------------------------------------------
-    # DC / AC
-    # --------------------------------------------------------
-
-    if ac_power > 0:
-
-        dc_ac_ratio = (
-            pv_kw /
-            (
-                ac_power /
-                1000
-            )
-        )
-
-    else:
-
-        dc_ac_ratio = 0
-
-    # --------------------------------------------------------
-    # MPPT
-    # --------------------------------------------------------
-
-    mppt_results = []
-
-    overall_mppt_status = "PASS"
-
-    for index, mppt in enumerate(
-        mppts,
-        start=1,
-    ):
-
-        strings = max(
-            1,
-            safe_int(
-                mppt.get(
-                    "strings"
-                ),
-                1,
-            ),
-        )
-
-        current_limit = safe_float(
-            mppt.get(
-                "max_current_a"
-            )
-        )
-
-        voltage_limit = safe_float(
-            mppt.get(
-                "max_voltage_v"
-            )
-        )
-
-        short_circuit_limit = safe_float(
-            mppt.get(
-                "max_short_circuit_current_a"
-            )
-        )
-
-        max_strings = safe_int(
-            mppt.get(
-                "max_strings"
-            )
-        )
-
-        if current_limit <= 0:
-
-            current_limit = safe_float(
-                inverter.get(
-                    "max_mppt_current_a"
-                )
-            )
-
-        if voltage_limit <= 0:
-
-            voltage_limit = max_dc
-
-        design_current = (
-            strings *
-            isc *
-            current_safety_factor
-        )
-
-        operating_current = (
-            strings *
-            imp
-        )
-
-        short_circuit_design = (
-            strings *
-            isc
-        )
-
-        # Current check
-        current_ok = (
-            current_limit <= 0
-            or
-            design_current <=
-            current_limit
-        )
-
-        # Short circuit check
-        isc_ok = (
-            short_circuit_limit <= 0
-            or
-            short_circuit_design <=
-            short_circuit_limit
-        )
-
-        # Voltage check
-        voltage_ok = (
-            voltage_limit <= 0
-            or
-            string_cold_voc <=
-            voltage_limit
-        )
-
-        # MPPT operating window
-        mppt_window_ok = (
-            (
-                mppt_min <= 0
-                or
-                string_hot_vmp >=
-                mppt_min
-            )
-            and
-            (
-                mppt_max <= 0
-                or
-                string_vmp <=
-                mppt_max
-            )
-        )
-
-        # Max strings
-        strings_count_ok = (
-            max_strings <= 0
-            or
-            strings <= max_strings
-        )
-
-        statuses = [
-            current_ok,
-            isc_ok,
-            voltage_ok,
-            mppt_window_ok,
-            strings_count_ok,
-        ]
-
-        if all(statuses):
-
-            status = "PASS"
-
-        elif any(
-            x is False
-            for x in statuses
-        ):
-
-            status = "FAIL"
-
-            overall_mppt_status = "FAIL"
-
-        else:
-
-            status = "WARNING"
-
-            if overall_mppt_status != "FAIL":
-                overall_mppt_status = "WARNING"
-
-        mppt_results.append(
-            {
-                "MPPT":
-                    index,
-
-                "Strings":
-                    strings,
-
-                "Panels/String":
-                    panels_per_string,
-
-                "Total Panels":
-                    strings *
-                    panels_per_string,
-
-                "Vmp String V":
-                    round(
-                        string_vmp,
-                        2,
-                    ),
-
-                "Hot Vmp String V":
-                    round(
-                        string_hot_vmp,
-                        2,
-                    ),
-
-                "Voc String V":
-                    round(
-                        string_voc,
-                        2,
-                    ),
-
-                "Cold Voc String V":
-                    round(
-                        string_cold_voc,
-                        2,
-                    ),
-
-                "Operating Current A":
-                    round(
-                        operating_current,
-                        2,
-                    ),
-
-                "Design Current A":
-                    round(
-                        design_current,
-                        2,
-                    ),
-
-                "Max Current A":
-                    round(
-                        current_limit,
-                        2,
-                    ),
-
-                "Design Isc A":
-                    round(
-                        short_circuit_design,
-                        2,
-                    ),
-
-                "Max Isc A":
-                    round(
-                        short_circuit_limit,
-                        2,
-                    ),
-
-                "Current":
-                    "PASS"
-                    if current_ok
-                    else "FAIL",
-
-                "Isc":
-                    "PASS"
-                    if isc_ok
-                    else "FAIL",
-
-                "Voltage":
-                    "PASS"
-                    if voltage_ok
-                    else "FAIL",
-
-                "MPPT Window":
-                    "PASS"
-                    if mppt_window_ok
-                    else "FAIL",
-
-                "Strings Limit":
-                    "PASS"
-                    if strings_count_ok
-                    else "FAIL",
-
-                "Status":
-                    status,
-            }
-        )
-
-    # --------------------------------------------------------
-    # Daily load
-    # --------------------------------------------------------
-
-    daily_load_kwh = 0
-
-    peak_load_w = 0
-
-    for load in loads:
-
-        power = safe_float(
-            load.get(
-                "power_w"
-            )
-        )
-
-        qty = safe_float(
-            load.get(
-                "quantity"
-            ),
-            1,
-        )
-
-        hours = safe_float(
-            load.get(
-                "hours_per_day"
-            )
-        )
-
-        daily_load_kwh += (
-            power *
-            qty *
-            hours /
-            1000
-        )
-
-        peak_load_w += (
-            power *
-            qty
-        )
-
-    # --------------------------------------------------------
-    # PV energy
-    # --------------------------------------------------------
-
-    psh = safe_float(
-        site.get(
-            "peak_sun_hours"
-        )
-    )
-
-    efficiency = (
-        safe_float(
-            site.get(
-                "system_efficiency_pct"
-            ),
-            80,
-        )
-        /
-        100
-    )
-
-    estimated_pv_energy = (
-        pv_kw *
-        psh *
-        efficiency
-    )
-
-    if (
-        daily_load_kwh > 0
-        and psh > 0
-        and efficiency > 0
-    ):
-
-        required_pv_kw = (
-            daily_load_kwh /
-            psh /
-            efficiency
-        )
-
-    else:
-
-        required_pv_kw = 0
-
-    # --------------------------------------------------------
-    # Battery
-    # --------------------------------------------------------
-
-    battery_enabled = bool(
-        battery.get(
-            "enabled",
-            False,
-        )
-    )
-
-    battery_status = "DISABLED"
-
-    required_battery_kwh = 0
-
-    actual_battery_kwh = 0
-
-    battery_voltage = 0
-
-    if battery_enabled:
-
-        battery_voltage = safe_float(
-            battery.get(
-                "nominal_voltage_v"
-            )
-        )
-
-        battery_ah = safe_float(
-            battery.get(
-                "capacity_ah"
-            )
-        )
-
-        actual_battery_kwh = safe_float(
-            battery.get(
-                "capacity_kwh"
-            )
-        )
-
-        if (
-            actual_battery_kwh <= 0
-            and
-            battery_voltage > 0
-            and
-            battery_ah > 0
-        ):
-
-            actual_battery_kwh = (
-                battery_voltage *
-                battery_ah /
-                1000
-            )
-
-        dod = safe_float(
-            battery.get(
-                "recommended_dod_pct"
-            ),
-            80,
-        )
-
-        autonomy_days = safe_float(
-            battery.get(
-                "autonomy_days"
-            ),
-            1,
-        )
-
-        if daily_load_kwh > 0:
-
-            required_battery_kwh = (
-                daily_load_kwh *
-                autonomy_days /
-                (
-                    dod /
-                    100
-                )
-            )
-
-        if required_battery_kwh <= 0:
-
-            battery_status = "WARNING"
-
-        elif actual_battery_kwh >= required_battery_kwh:
-
-            battery_status = "PASS"
-
-        else:
-
-            battery_status = "FAIL"
-
-    # --------------------------------------------------------
-    # Overall
-    # --------------------------------------------------------
-
-    fail_count = 0
-    warning_count = 0
-
-    for row in mppt_results:
-
-        if row["Status"] == "FAIL":
-            fail_count += 1
-
-        elif row["Status"] == "WARNING":
-            warning_count += 1
-
-    # PV sizing
-    if (
-        required_pv_kw > 0
-        and pv_kw < required_pv_kw
-    ):
-
-        fail_count += 1
-
-    # Battery
-    if battery_enabled:
-
-        if battery_status == "FAIL":
-
-            fail_count += 1
-
-        elif battery_status == "WARNING":
-
-            warning_count += 1
-
-    # DC / AC
-    if dc_ac_ratio > 0:
-
-        if (
-            dc_ac_ratio < 0.8
-            or
-            dc_ac_ratio > 1.5
-        ):
-
-            warning_count += 1
-
-    if fail_count > 0:
-
-        overall_status = "FAIL"
-
-    elif warning_count > 0:
-
-        overall_status = "WARNING"
-
-    else:
-
-        overall_status = "PASS"
-
-    return {
-        "panels_per_string":
-            panels_per_string,
-
-        "total_strings":
-            total_strings,
-
-        "total_panels":
-            total_panels,
-
-        "pv_kw":
-            pv_kw,
-
-        "dc_ac_ratio":
-            dc_ac_ratio,
-
-        "string_vmp":
-            string_vmp,
-
-        "string_hot_vmp":
-            string_hot_vmp,
-
-        "string_voc":
-            string_voc,
-
-        "string_cold_voc":
-            string_cold_voc,
-
-        "cold_voc_panel":
-            cold_voc_panel,
-
-        "hot_vmp_panel":
-            hot_vmp_panel,
-
-        "mppt_results":
-            mppt_results,
-
-        "daily_load_kwh":
-            daily_load_kwh,
-
-        "peak_load_w":
-            peak_load_w,
-
-        "estimated_pv_energy":
-            estimated_pv_energy,
-
-        "required_pv_kw":
-            required_pv_kw,
-
-        "battery_enabled":
-            battery_enabled,
-
-        "battery_status":
-            battery_status,
-
-        "battery_voltage":
-            battery_voltage,
-
-        "actual_battery_kwh":
-            actual_battery_kwh,
-
-        "required_battery_kwh":
-            required_battery_kwh,
-
-        "overall_status":
-            overall_status,
-
-        "fail_count":
-            fail_count,
-
-        "warning_count":
-            warning_count,
-    }
-
-
-# ============================================================
-# CURRENT DESIGN CALCULATION
-# ============================================================
-
-current_result = calculate_design(
-    panels_per_string=int(
-        selected_panels_per_string
-    ),
-    panel=panel,
-    inverter=inverter,
-    mppts=mppts,
-    site=site,
-    battery=battery,
-    loads=loads,
-    current_safety_factor=
-        current_safety_factor,
-)
-
-
-# ============================================================
-# MAIN RESULT
-# ============================================================
-
-st.markdown("---")
-
-st.header(
-    "4️⃣ نتيجة التصميم الحالية"
-)
-
-status = current_result[
-    "overall_status"
-]
-
-if status == "PASS":
-
-    st.success(
-        "🟢 DESIGN STATUS — PASS"
-    )
-
-elif status == "WARNING":
-
-    st.warning(
-        "🟡 DESIGN STATUS — WARNING"
-    )
-
-else:
-
-    st.error(
-        "🔴 DESIGN STATUS — FAIL"
-    )
-
-
-# ============================================================
-# MAIN METRICS
-# ============================================================
-
-c1, c2, c3, c4, c5, c6 = st.columns(6)
-
-with c1:
-
-    st.metric(
-        "Panels/String",
-        current_result[
-            "panels_per_string"
-        ],
-    )
-
-with c2:
-
-    st.metric(
-        "Total Strings",
-        current_result[
-            "total_strings"
-        ],
-    )
-
-with c3:
-
-    st.metric(
-        "Total Panels",
-        current_result[
-            "total_panels"
-        ],
-    )
-
-with c4:
-
-    st.metric(
-        "PV Capacity",
-        f'{current_result["pv_kw"]:.2f} kWp',
-    )
-
-with c5:
-
-    st.metric(
-        "DC / AC",
-        f'{current_result["dc_ac_ratio"]:.2f}',
-    )
-
-with c6:
-
-    st.metric(
-        "Status",
-        status_icon(
-            status
         ),
     )
 
-
-# ============================================================
-# CURRENT ELECTRICAL VALUES
-# ============================================================
-
-st.subheader(
-    "📐 قراءات الـString الحالية"
-)
-
-c1, c2, c3, c4, c5 = st.columns(5)
-
-with c1:
-
-    st.metric(
-        "Vmp/String",
-        f'{current_result["string_vmp"]:.1f} V',
+    detected_config = inverter.get(
+        "mppt_strings_config",
+        None,
     )
 
-with c2:
+    # ========================================================
+    # DETERMINE MPPT CONFIG
+    # ========================================================
 
-    st.metric(
-        "Hot Vmp/String",
-        f'{current_result["string_hot_vmp"]:.1f} V',
+    if isinstance(detected_config, list):
+
+        mppt_config = [
+            max(1, safe_int(x, 1))
+            for x in detected_config
+            if safe_int(x, 1) > 0
+        ]
+
+        if not mppt_config:
+            mppt_config = [1]
+
+    else:
+
+        old_strings = max(
+            1,
+            safe_int(
+                inverter.get(
+                    "strings_per_mppt"
+                ),
+                1,
+            ),
+        )
+
+        mppt_config = [
+            old_strings
+            for _ in range(
+                detected_mppt_count
+            )
+        ]
+
+    # ========================================================
+    # SIDEBAR: ALLOW USER TO EDIT DETECTED MPPT
+    # ========================================================
+
+    with st.sidebar:
+
+        if st.session_state.get(
+            "analysis_result"
+        ):
+
+            st.markdown("---")
+
+            st.header(
+                "🔀 تكوين MPPT النهائي"
+            )
+
+            editable_mppt_count = st.number_input(
+                "عدد MPPT المستخدم فعلياً",
+                min_value=1,
+                max_value=32,
+                value=len(mppt_config),
+                step=1,
+                key="result_mppt_count",
+            )
+
+            user_config = []
+
+            for i in range(
+                int(editable_mppt_count)
+            ):
+
+                default_strings = (
+                    mppt_config[i]
+                    if i < len(mppt_config)
+                    else 1
+                )
+
+                s = st.number_input(
+                    f"MPPT {i + 1} — Strings",
+                    min_value=1,
+                    max_value=16,
+                    value=int(
+                        default_strings
+                    ),
+                    step=1,
+                    key=f"result_mppt_strings_{i}",
+                )
+
+                user_config.append(
+                    int(s)
+                )
+
+            mppt_config = user_config
+
+
+    # ========================================================
+    # ENGINEERING STATUS
+    # ========================================================
+
+    system_errors = []
+    system_warnings = []
+
+    is_on_grid = (
+        "on-grid" in inverter_type.lower()
+        or "ongrid" in inverter_type.lower()
+        or "grid-tied" in inverter_type.lower()
     )
 
-with c3:
+    # ========================================================
+    # BATTERY VALIDATION
+    # ========================================================
 
-    st.metric(
-        "Voc/String",
-        f'{current_result["string_voc"]:.1f} V',
+    battery_voltage = safe_float(
+        battery.get("nominal_voltage_v")
     )
 
-with c4:
-
-    st.metric(
-        "Cold Voc/String",
-        f'{current_result["string_cold_voc"]:.1f} V',
+    battery_ah = safe_float(
+        battery.get("capacity_ah")
     )
 
-with c5:
-
-    st.metric(
-        "Estimated PV Energy",
-        f'{current_result["estimated_pv_energy"]:.2f} kWh/day',
+    battery_kwh = safe_float(
+        battery.get("capacity_kwh")
     )
 
+    battery_max_discharge = safe_float(
+        battery.get(
+            "max_discharge_current_a"
+        )
+    )
 
-# ============================================================
-# MPPT RESULTS
-# ============================================================
+    inverter_battery_voltage = safe_float(
+        inverter_battery.get(
+            "nominal_voltage_v"
+        )
+    )
 
-st.subheader(
-    "🔀 MPPT Verification"
-)
+    if battery_enabled:
 
-mppt_table = current_result[
-    "mppt_results"
-]
+        if is_on_grid:
 
-if mppt_table:
+            system_warnings.append(
+                "تم تفعيل بطارية خارجية بينما نوع الإنفيرتر "
+                "يظهر On-Grid. يجب مراجعة الـ Datasheet."
+            )
+
+        if (
+            battery_voltage > 0
+            and inverter_battery_voltage > 0
+        ):
+
+            ok, message = check_battery_voltage(
+                inverter_battery_voltage,
+                battery_voltage,
+            )
+
+            if ok is False:
+                system_errors.append(
+                    message
+                )
+
+            elif ok is True:
+                pass
+
+    # ========================================================
+    # STRING LIMITS
+    # ========================================================
+
+    limits = calculate_string_limits(
+        voc,
+        vmp,
+        dc_max,
+        mppt_min,
+        mppt_max,
+    )
+
+    # ========================================================
+    # DC/AC
+    # ========================================================
+
+    # ========================================================
+    # TOP STATUS
+    # ========================================================
+
+    st.markdown("---")
+
+    st.subheader(
+        "📊 لوحة الحالة الهندسية"
+    )
+
+    if system_errors:
+
+        st.error(
+            "🔴 حالة النظام: يحتاج إلى تصحيح"
+        )
+
+    elif system_warnings:
+
+        st.warning(
+            "🟡 حالة النظام: توجد تنبيهات للمراجعة"
+        )
+
+    else:
+
+        st.success(
+            "🟢 حالة النظام: متوافق مبدئياً"
+        )
+
+    # ========================================================
+    # SUMMARY METRICS
+    # ========================================================
+
+    total_strings = sum(
+        mppt_config
+    )
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+
+    with k1:
+        st.metric(
+            "Panel",
+            f"{pmax:.0f} W"
+            if pmax
+            else "N/A",
+        )
+
+    with k2:
+        st.metric(
+            "Inverter",
+            f"{ac_power / 1000:.2f} kW"
+            if ac_power
+            else "N/A",
+        )
+
+    with k3:
+
+        ratio_single = (
+            pmax / ac_power
+            if pmax and ac_power
+            else 0
+        )
+
+        st.metric(
+            "Panel/Inverter",
+            f"{ratio_single:.2f}"
+            if ratio_single
+            else "N/A",
+        )
+
+    with k4:
+
+        st.metric(
+            "MPPT",
+            len(mppt_config),
+        )
+
+    with k5:
+
+        st.metric(
+            "Total Strings",
+            total_strings,
+        )
+
+    # ========================================================
+    # SPECIFICATIONS
+    # ========================================================
+
+    st.markdown("---")
+
+    st.subheader(
+        "📌 المواصفات"
+    )
+
+    left, right = st.columns(2)
+
+    with left:
+
+        st.markdown(
+            "### ☀️ Solar Panel"
+        )
+
+        st.write(
+            f"**الشركة:** {p_brand}"
+        )
+
+        st.write(
+            f"**الموديل:** {p_model}"
+        )
+
+        st.write(
+            f"**Pmax:** {fmt(pmax)} W"
+        )
+
+        st.write(
+            f"**Voc:** {fmt(voc)} V"
+        )
+
+        st.write(
+            f"**Vmp:** {fmt(vmp)} V"
+        )
+
+        st.write(
+            f"**Isc:** {fmt(isc)} A"
+        )
+
+        st.write(
+            f"**Imp:** {fmt(imp)} A"
+        )
+
+    with right:
+
+        st.markdown(
+            "### ⚡ Inverter"
+        )
+
+        st.write(
+            f"**الشركة:** {i_brand}"
+        )
+
+        st.write(
+            f"**الموديل:** {i_model}"
+        )
+
+        st.write(
+            f"**النوع:** {inverter_type}"
+        )
+
+        st.write(
+            f"**الفازات:** {phase_type}"
+        )
+
+        st.write(
+            f"**Architecture:** {architecture}"
+        )
+
+        st.write(
+            f"**AC Rated:** {fmt(ac_power)} W"
+        )
+
+        st.write(
+            f"**DC Max:** {fmt(dc_max)} V"
+        )
+
+        st.write(
+            f"**MPPT:** {fmt(mppt_min)} – "
+            f"{fmt(mppt_max)} V"
+        )
+
+    # ========================================================
+    # MPPT CONFIGURATION TABLE
+    # ========================================================
+
+    st.markdown("---")
+
+    st.subheader(
+        "🔀 تكوين MPPT / Strings"
+    )
+
+    config_rows = []
+
+    for i, string_count in enumerate(
+        mppt_config,
+        1,
+    ):
+
+        config_rows.append(
+            {
+                "MPPT": i,
+                "عدد Strings": string_count,
+                "الحد الأقصى النظري للتيار": (
+                    string_count
+                    * isc
+                    * 1.25
+                ),
+            }
+        )
 
     st.dataframe(
-        mppt_table,
+        config_rows,
         use_container_width=True,
         hide_index=True,
     )
 
+    # ========================================================
+    # STRING LIMITS
+    # ========================================================
 
-# ============================================================
-# MPPT DETAILED STATUS
-# ============================================================
+    if limits is None:
 
-st.subheader(
-    "🔎 تفاصيل كل MPPT"
-)
+        st.error(
+            "❌ لا يمكن حساب حدود String. "
+            "تأكد من إدخال Voc وVmp وDC Max."
+        )
 
-for row in mppt_table:
+    else:
 
-    mppt_status = row[
-        "Status"
-    ]
+        min_panels_string = limits[
+            "min_series"
+        ]
 
-    title = (
-        f'MPPT {row["MPPT"]} — '
-        f'{status_icon(mppt_status)}'
+        max_panels_string = limits[
+            "max_series"
+        ]
+
+        if (
+            max_panels_string
+            < min_panels_string
+        ):
+
+            st.error(
+                f"❌ لا يوجد عدد String صالح. "
+                f"الحد الأدنى = "
+                f"{min_panels_string} "
+                f"والحد الأقصى = "
+                f"{max_panels_string}."
+            )
+
+        else:
+
+            recommended_string = (
+                min_panels_string
+                + max_panels_string
+            ) // 2
+
+            min_total_panels = (
+                min_panels_string
+                * total_strings
+            )
+
+            max_total_panels = (
+                max_panels_string
+                * total_strings
+            )
+
+            recommended_total_panels = (
+                recommended_string
+                * total_strings
+            )
+
+            st.markdown("---")
+
+            st.subheader(
+                "📐 حدود تصميم الـ String"
+            )
+
+            c1, c2, c3, c4 = st.columns(4)
+
+            c1.metric(
+                "Min Panels / String",
+                min_panels_string,
+            )
+
+            c2.metric(
+                "Recommended",
+                recommended_string,
+            )
+
+            c3.metric(
+                "Max Panels / String",
+                max_panels_string,
+            )
+
+            c4.metric(
+                "Total Strings",
+                total_strings,
+            )
+
+            st.info(
+                f"Voc البارد للوح ≈ "
+                f"{limits['cold_voc_panel']:.2f} V | "
+                f"الحد الآمن لـ DC ≈ "
+                f"{limits['safe_dc_max']:.2f} V | "
+                f"الحد الأدنى الآمن للـ MPPT ≈ "
+                f"{limits['safe_mppt_min']:.2f} V"
+            )
+
+            # =================================================
+            # RECOMMENDATION
+            # =================================================
+
+            st.markdown(
+                "### ⭐ التوصية الأساسية"
+            )
+
+            recommended_kwp = (
+                recommended_total_panels
+                * pmax
+                / 1000
+                if pmax
+                else 0
+            )
+
+            recommended_dc_ac = (
+                recommended_kwp
+                / (ac_power / 1000)
+                if ac_power
+                else 0
+            )
+
+            st.success(
+                f"**{recommended_total_panels} لوح** | "
+                f"**{recommended_kwp:.2f} kWp** | "
+                f"**{recommended_string} ألواح/String** | "
+                f"DC/AC = "
+                f"**{recommended_dc_ac:.2f}**"
+            )
+
+            # =================================================
+            # PANEL COUNT SIMULATOR
+            # =================================================
+
+            st.markdown("---")
+
+            st.subheader(
+                "🧮 محاكاة عدد الألواح"
+            )
+
+            st.caption(
+                "هنا يمكنك زيادة أو تقليل عدد الألواح "
+                "ورؤية القراءات الجديدة مباشرة."
+            )
+
+            sim_min = min_total_panels
+
+            sim_max = max_total_panels
+
+            if sim_max < sim_min:
+                sim_max = sim_min
+
+            # حماية إذا كانت الحدود صغيرة جداً
+            default_sim = int(
+                clamp(
+                    recommended_total_panels,
+                    sim_min,
+                    sim_max,
+                )
+            )
+
+            custom_panels = st.number_input(
+                "إجمالي عدد الألواح",
+                min_value=int(sim_min),
+                max_value=int(
+                    max(
+                        sim_max,
+                        sim_min,
+                    )
+                ),
+                value=default_sim,
+                step=1,
+                key="custom_panel_count",
+            )
+
+            # =================================================
+            # DISTRIBUTION
+            # =================================================
+
+            rows = distribute_panels(
+                custom_panels,
+                mppt_config,
+            )
+
+            errors, warnings = evaluate_strings(
+                rows,
+                pmax,
+                voc,
+                vmp,
+                isc,
+                dc_max,
+                mppt_min,
+                mppt_max,
+                max_mppt_current,
+            )
+
+            # =================================================
+            # TOTAL SYSTEM VALUES
+            # =================================================
+
+            total_kwp = (
+                custom_panels
+                * pmax
+                / 1000
+                if pmax
+                else 0
+            )
+
+            dc_ac_ratio = (
+                total_kwp
+                / (ac_power / 1000)
+                if ac_power
+                else 0
+            )
+
+            dc_power_w = (
+                custom_panels * pmax
+                if pmax
+                else 0
+            )
+
+            # =================================================
+            # SYSTEM POWER METRICS
+            # =================================================
+
+            st.markdown(
+                "### 📊 قراءات العدد المختار"
+            )
+
+            a1, a2, a3, a4, a5 = st.columns(5)
+
+            a1.metric(
+                "Panels",
+                custom_panels,
+            )
+
+            a2.metric(
+                "PV Power",
+                f"{total_kwp:.2f} kWp",
+            )
+
+            a3.metric(
+                "DC Power",
+                f"{dc_power_w:.0f} W",
+            )
+
+            a4.metric(
+                "DC/AC",
+                f"{dc_ac_ratio:.2f}"
+                if dc_ac_ratio
+                else "N/A",
+            )
+
+            a5.metric(
+                "Strings",
+                total_strings,
+            )
+
+            # =================================================
+            # VALIDATION MESSAGES
+            # =================================================
+
+            if errors:
+
+                st.markdown(
+                    "### 🔴 أخطاء التصميم"
+                )
+
+                for message in errors:
+
+                    st.error(
+                        message
+                    )
+
+            elif warnings:
+
+                st.markdown(
+                    "### 🟡 تنبيهات"
+                )
+
+                for message in warnings:
+
+                    st.warning(
+                        message
+                    )
+
+            else:
+
+                st.success(
+                    "✅ عدد الألواح والتوزيع الحالي "
+                    "متوافقان مبدئياً مع حدود الجهد والتيار."
+                )
+
+            # =================================================
+            # STRING TABLE
+            # =================================================
+
+            st.markdown(
+                "### 🔌 توزيع الألواح على Strings"
+            )
+
+            table_rows = []
+
+            for row in rows:
+
+                n = row["Panels"]
+
+                string_vmp = (
+                    n * vmp
+                    if vmp
+                    else 0
+                )
+
+                string_voc = (
+                    n
+                    * voc
+                    * cold_factor
+                    if voc
+                    else 0
+                )
+
+                string_power = (
+                    n * pmax / 1000
+                    if pmax
+                    else 0
+                )
+
+                string_current = (
+                    isc
+                    if isc
+                    else 0
+                )
+
+                table_rows.append(
+                    {
+                        "MPPT": row["MPPT"],
+                        "String": row["String"],
+                        "Panels": n,
+                        "Vmp (V)": round(
+                            string_vmp,
+                            1,
+                        ),
+                        "Voc Cold (V)": round(
+                            string_voc,
+                            1,
+                        ),
+                        "Current (A)": round(
+                            string_current,
+                            2,
+                        ),
+                        "Power (kW)": round(
+                            string_power,
+                            3,
+                        ),
+                    }
+                )
+
+            st.dataframe(
+                table_rows,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            # =================================================
+            # PER MPPT SUMMARY
+            # =================================================
+
+            st.markdown(
+                "### 🔀 قراءة كل MPPT"
+            )
+
+            for mppt_no in range(
+                1,
+                len(mppt_config) + 1,
+            ):
+
+                mppt_rows = [
+                    x
+                    for x in rows
+                    if x["MPPT"]
+                    == mppt_no
+                ]
+
+                if not mppt_rows:
+                    continue
+
+                panels_in_mppt = sum(
+                    x["Panels"]
+                    for x in mppt_rows
+                )
+
+                mppt_power = (
+                    panels_in_mppt
+                    * pmax
+                    / 1000
+                    if pmax
+                    else 0
+                )
+
+                mppt_current = (
+                    len(mppt_rows)
+                    * isc
+                    * 1.25
+                    if isc
+                    else 0
+                )
+
+                mppt_vmp_values = [
+                    x["Panels"] * vmp
+                    for x in mppt_rows
+                ]
+
+                mppt_voc_values = [
+                    x["Panels"]
+                    * voc
+                    * cold_factor
+                    for x in mppt_rows
+                ]
+
+                c1, c2, c3, c4, c5 = st.columns(5)
+
+                c1.metric(
+                    f"MPPT {mppt_no}",
+                    f"{len(mppt_rows)} Strings",
+                )
+
+                c2.metric(
+                    "Panels",
+                    panels_in_mppt,
+                )
+
+                c3.metric(
+                    "PV",
+                    f"{mppt_power:.2f} kW",
+                )
+
+                c4.metric(
+                    "Design Current",
+                    f"{mppt_current:.2f} A",
+                )
+
+                c5.metric(
+                    "Vmp Range",
+                    (
+                        f"{min(mppt_vmp_values):.0f}–"
+                        f"{max(mppt_vmp_values):.0f} V"
+                    )
+                    if mppt_vmp_values
+                    else "N/A",
+                )
+
+            # =================================================
+            # AUTOMATIC RANGE TABLE
+            # =================================================
+
+            st.markdown("---")
+
+            st.subheader(
+                "📈 ماذا يحدث إذا زدت أو قللت الألواح؟"
+            )
+
+            range_rows = []
+
+            step_size = max(
+                1,
+                total_strings,
+            )
+
+            # نجعل المحاكاة على عدد Panels/String
+            # حتى تكون النتائج هندسية ومفهومة.
+            for panels_per_string in range(
+                min_panels_string,
+                max_panels_string + 1,
+            ):
+
+                n_total = (
+                    panels_per_string
+                    * total_strings
+                )
+
+                power_kw = (
+                    n_total
+                    * pmax
+                    / 1000
+                    if pmax
+                    else 0
+                )
+
+                dcac = (
+                    power_kw
+                    / (ac_power / 1000)
+                    if ac_power
+                    else 0
+                )
+
+                vmp_string = (
+                    panels_per_string
+                    * vmp
+                    if vmp
+                    else 0
+                )
+
+                voc_string = (
+                    panels_per_string
+                    * voc
+                    * cold_factor
+                    if voc
+                    else 0
+                )
+
+                range_rows.append(
+                    {
+                        "Panels/String":
+                            panels_per_string,
+                        "Total Panels":
+                            n_total,
+                        "Total kWp":
+                            round(
+                                power_kw,
+                                2,
+                            ),
+                        "DC/AC":
+                            round(
+                                dcac,
+                                2,
+                            ),
+                        "Vmp/String":
+                            round(
+                                vmp_string,
+                                1,
+                            ),
+                        "Voc Cold/String":
+                            round(
+                                voc_string,
+                                1,
+                            ),
+                    }
+                )
+
+            st.dataframe(
+                range_rows,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    # ========================================================
+    # BATTERY SECTION
+    # ========================================================
+
+    if battery_enabled:
+
+        st.markdown("---")
+
+        st.subheader(
+            "🔋 فحص البطارية الخارجية"
+        )
+
+        b1, b2 = st.columns(2)
+
+        with b1:
+
+            st.write(
+                f"**الشركة:** "
+                f"{safe_text(battery.get('brand'))}"
+            )
+
+            st.write(
+                f"**الموديل:** "
+                f"{safe_text(battery.get('model'))}"
+            )
+
+            st.write(
+                f"**Chemistry:** "
+                f"{safe_text(battery.get('chemistry'))}"
+            )
+
+            st.write(
+                f"**Voltage:** "
+                f"{battery_voltage:g} V"
+            )
+
+            st.write(
+                f"**Capacity:** "
+                f"{battery_ah:g} Ah"
+            )
+
+            st.write(
+                f"**Energy:** "
+                f"{battery_kwh:g} kWh"
+            )
+
+        with b2:
+
+            st.write(
+                f"**Max Charge:** "
+                f"{safe_float(battery.get('max_charge_current_a')):g} A"
+            )
+
+            st.write(
+                f"**Max Discharge:** "
+                f"{battery_max_discharge:g} A"
+            )
+
+            if (
+                battery_voltage > 0
+                and inverter_battery_voltage > 0
+            ):
+
+                ok, message = check_battery_voltage(
+                    inverter_battery_voltage,
+                    battery_voltage,
+                )
+
+                if ok:
+
+                    st.success(
+                        "✅ " + message
+                    )
+
+                elif ok is False:
+
+                    st.error(
+                        "❌ " + message
+                    )
+
+                else:
+
+                    st.warning(
+                        "⚠️ " + message
+                    )
+
+        # ====================================================
+        # BATTERY DESIGN
+        # ====================================================
+
+        st.markdown(
+            "### 🧰 حاسبة حجم البطارية"
+        )
+
+        c = st.columns(4)
+
+        daily_load = c[0].number_input(
+            "الاستهلاك اليومي (kWh/day)",
+            min_value=0.0,
+            value=10.0,
+            step=0.5,
+            key="battery_daily_load",
+        )
+
+        autonomy = c[1].number_input(
+            "Autonomy (hours)",
+            min_value=0.5,
+            value=8.0,
+            step=0.5,
+            key="battery_autonomy",
+        )
+
+        # IMPORTANT:
+        # لا نستخدم number_input هنا حتى لا يعود
+        # StreamlitValueBelowMinError
+        dod = c[2].slider(
+            "DoD (%)",
+            min_value=50,
+            max_value=95,
+            value=80,
+            step=5,
+            key="battery_dod_safe",
+        )
+
+        efficiency = c[3].slider(
+            "Inverter Efficiency (%)",
+            min_value=80,
+            max_value=99,
+            value=92,
+            step=1,
+            key="battery_efficiency",
+        )
+
+        peak_load = st.number_input(
+            "الحمل الأقصى المتوقع (kW)",
+            min_value=0.0,
+            value=5.0,
+            step=0.5,
+            key="battery_peak_load",
+        )
+
+        battery_result = calculate_battery(
+            battery_voltage,
+            battery_ah,
+            battery_kwh,
+            battery_max_discharge,
+            daily_load,
+            autonomy,
+            dod / 100,
+            efficiency / 100,
+            peak_load,
+        )
+
+        if battery_result:
+
+            c = st.columns(4)
+
+            c[0].metric(
+                "Required Battery",
+                f"{battery_result['required_nominal_kwh']:.2f} kWh",
+            )
+
+            c[1].metric(
+                "Battery Unit",
+                f"{battery_result['unit_kwh']:.2f} kWh",
+            )
+
+            c[2].metric(
+                "Estimated Quantity",
+                battery_result["battery_count"],
+            )
+
+            c[3].metric(
+                "Total Battery",
+                f"{battery_result['total_kwh']:.2f} kWh",
+            )
+
+            theoretical_power = (
+                battery_result[
+                    "theoretical_power_w"
+                ]
+                / 1000
+            )
+
+            if theoretical_power > 0:
+
+                st.write(
+                    f"**قدرة التفريغ النظرية:** "
+                    f"{theoretical_power:.2f} kW"
+                )
+
+                if (
+                    theoretical_power
+                    < peak_load
+                ):
+
+                    st.error(
+                        "❌ قدرة تفريغ البطارية "
+                        "النظرية أقل من الحمل الأقصى."
+                    )
+
+                else:
+
+                    st.success(
+                        "✅ قدرة التفريغ النظرية "
+                        "مناسبة للحمل المدخل."
+                    )
+
+        else:
+
+            st.warning(
+                "أدخل بيانات الحمل والاستقلالية "
+                "لحساب حجم البطارية."
+            )
+
+    # ========================================================
+    # LOAD CALCULATOR
+    # ========================================================
+
+    st.markdown("---")
+
+    st.subheader(
+        "🏠 حاسبة الأحمال اليومية"
     )
 
-    with st.expander(
-        title,
-        expanded=(
-            mppt_status == "FAIL"
-        ),
-    ):
+    st.caption(
+        "هذه الحاسبة تعطي تقديراً سريعاً للاستهلاك."
+    )
 
-        c1, c2, c3, c4 = st.columns(4)
+    load_defaults = [
+        ("ثلاجة", 150, 8),
+        ("إضاءة", 20, 6),
+        ("تلفاز", 100, 5),
+        ("حاسوب", 100, 6),
+        ("مكيف", 1200, 5),
+        ("مضخة", 750, 3),
+    ]
+
+    total_daily_wh = 0
+
+    load_table = []
+
+    for idx, (
+        name,
+        watts,
+        hours,
+    ) in enumerate(load_defaults):
+
+        c1, c2, c3 = st.columns(
+            [3, 2, 2]
+        )
 
         with c1:
 
-            st.metric(
-                "Strings",
-                row[
-                    "Strings"
-                ],
+            device = st.text_input(
+                "الجهاز",
+                value=name,
+                key=f"load_device_{idx}",
             )
 
         with c2:
 
-            st.metric(
-                "Panels",
-                row[
-                    "Total Panels"
-                ],
+            power = st.number_input(
+                "W",
+                min_value=0.0,
+                value=float(watts),
+                step=10.0,
+                key=f"load_power_{idx}",
             )
 
         with c3:
 
-            st.metric(
-                "Design Current",
-                f'{row["Design Current A"]:.2f} A',
+            h = st.number_input(
+                "ساعات/يوم",
+                min_value=0.0,
+                value=float(hours),
+                step=0.5,
+                key=f"load_hours_{idx}",
             )
 
-        with c4:
+        wh = power * h
 
-            st.metric(
-                "Max Current",
-                f'{row["Max Current A"]:.2f} A',
-            )
+        total_daily_wh += wh
 
-        st.write(
-            f'**Cold Voc:** '
-            f'{row["Cold Voc String V"]:.2f} V'
-        )
-
-        st.write(
-            f'**Hot Vmp:** '
-            f'{row["Hot Vmp String V"]:.2f} V'
-        )
-
-        if row["Current"] == "FAIL":
-
-            st.error(
-                "تيار الـMPPT يتجاوز الحد."
-            )
-
-        if row["Isc"] == "FAIL":
-
-            st.error(
-                "Isc التصميمي يتجاوز الحد."
-            )
-
-        if row["Voltage"] == "FAIL":
-
-            st.error(
-                "Cold Voc يتجاوز Max Voltage."
-            )
-
-        if row["MPPT Window"] == "FAIL":
-
-            st.error(
-                "جهد التشغيل خارج نطاق MPPT."
-            )
-
-        if row["Strings Limit"] == "FAIL":
-
-            st.error(
-                "عدد Strings يتجاوز الحد المسموح."
-            )
-
-        if mppt_status == "PASS":
-
-            st.success(
-                "جميع فحوصات MPPT ناجحة."
-            )
-
-
-# ============================================================
-# SCENARIO TABLE
-# ============================================================
-
-st.markdown("---")
-
-st.header(
-    "5️⃣ مقارنة عدد الألواح"
-)
-
-st.info(
-    "هذا الجدول مهم جداً: يمكنك رؤية ماذا يحدث عند "
-    "تقليل أو زيادة عدد الألواح داخل الـString، "
-    "بدون إعادة إدخال البيانات."
-)
-
-scenario_rows = []
-
-for n in range(
-    int(min_panels_per_string),
-    int(max_panels_per_string) + 1,
-):
-
-    scenario = calculate_design(
-        panels_per_string=n,
-        panel=panel,
-        inverter=inverter,
-        mppts=mppts,
-        site=site,
-        battery=battery,
-        loads=loads,
-        current_safety_factor=
-            current_safety_factor,
-    )
-
-    scenario_rows.append(
-        {
-            "Panels/String":
-                n,
-
-            "Total Panels":
-                scenario[
-                    "total_panels"
-                ],
-
-            "PV kWp":
-                round(
-                    scenario[
-                        "pv_kw"
-                    ],
-                    2,
-                ),
-
-            "Vmp/String":
-                round(
-                    scenario[
-                        "string_vmp"
-                    ],
-                    1,
-                ),
-
-            "Hot Vmp":
-                round(
-                    scenario[
-                        "string_hot_vmp"
-                    ],
-                    1,
-                ),
-
-            "Voc/String":
-                round(
-                    scenario[
-                        "string_voc"
-                    ],
-                    1,
-                ),
-
-            "Cold Voc":
-                round(
-                    scenario[
-                        "string_cold_voc"
-                    ],
-                    1,
-                ),
-
-            "PV Energy kWh/day":
-                round(
-                    scenario[
-                        "estimated_pv_energy"
-                    ],
-                    2,
-                ),
-
-            "DC/AC":
-                round(
-                    scenario[
-                        "dc_ac_ratio"
-                    ],
-                    2,
-                ),
-
-            "Required PV kWp":
-                round(
-                    scenario[
-                        "required_pv_kw"
-                    ],
-                    2,
-                ),
-
-            "Status":
-                status_icon(
-                    scenario[
-                        "overall_status"
-                    ]
-                ),
-        }
-    )
-
-
-st.dataframe(
-    scenario_rows,
-    use_container_width=True,
-    hide_index=True,
-)
-
-
-# ============================================================
-# SCENARIO DETAILS
-# ============================================================
-
-st.subheader(
-    "📊 تجربة سيناريو معين"
-)
-
-scenario_number = st.slider(
-    "اختر عدد الألواح/سترينج لرؤية التفاصيل",
-    min_value=int(
-        min_panels_per_string
-    ),
-    max_value=int(
-        max_panels_per_string
-    ),
-    value=int(
-        selected_panels_per_string
-    ),
-    step=1,
-)
-
-selected_scenario = calculate_design(
-    panels_per_string=
-        int(scenario_number),
-    panel=panel,
-    inverter=inverter,
-    mppts=mppts,
-    site=site,
-    battery=battery,
-    loads=loads,
-    current_safety_factor=
-        current_safety_factor,
-)
-
-c1, c2, c3, c4, c5 = st.columns(5)
-
-with c1:
-
-    st.metric(
-        "Panels/String",
-        scenario_number,
-    )
-
-with c2:
-
-    st.metric(
-        "PV",
-        f'{selected_scenario["pv_kw"]:.2f} kWp',
-    )
-
-with c3:
-
-    st.metric(
-        "Vmp",
-        f'{selected_scenario["string_vmp"]:.1f} V',
-    )
-
-with c4:
-
-    st.metric(
-        "Cold Voc",
-        f'{selected_scenario["string_cold_voc"]:.1f} V',
-    )
-
-with c5:
-
-    st.metric(
-        "Status",
-        status_icon(
-            selected_scenario[
-                "overall_status"
-            ]
-        ),
-    )
-
-
-# ============================================================
-# LOAD ANALYSIS
-# ============================================================
-
-st.markdown("---")
-
-st.header(
-    "6️⃣ Load Analysis"
-)
-
-daily_load = current_result[
-    "daily_load_kwh"
-]
-
-peak_load = current_result[
-    "peak_load_w"
-]
-
-c1, c2, c3 = st.columns(3)
-
-with c1:
-
-    st.metric(
-        "Daily Energy",
-        f"{daily_load:.2f} kWh/day",
-    )
-
-with c2:
-
-    st.metric(
-        "Peak Load",
-        f"{peak_load:.0f} W",
-    )
-
-with c3:
-
-    st.metric(
-        "Required PV",
-        f'{current_result["required_pv_kw"]:.2f} kWp',
-    )
-
-
-if loads:
-
-    load_rows = []
-
-    for load in loads:
-
-        power = safe_float(
-            load.get(
-                "power_w"
-            )
-        )
-
-        qty = safe_float(
-            load.get(
-                "quantity"
-            ),
-            1,
-        )
-
-        hours = safe_float(
-            load.get(
-                "hours_per_day"
-            )
-        )
-
-        energy = (
-            power *
-            qty *
-            hours /
-            1000
-        )
-
-        load_rows.append(
+        load_table.append(
             {
-                "Load":
-                    load.get(
-                        "name",
-                        "",
-                    ),
-
-                "Quantity":
-                    qty,
-
-                "Power W":
-                    power,
-
-                "Hours/day":
-                    hours,
-
-                "Energy kWh/day":
-                    round(
-                        energy,
-                        3,
-                    ),
+                "الجهاز": device,
+                "Power W": power,
+                "Hours": h,
+                "Energy Wh/day": wh,
             }
         )
 
+    st.metric(
+        "الاستهلاك اليومي",
+        f"{total_daily_wh / 1000:.2f} kWh/day",
+    )
+
     st.dataframe(
-        load_rows,
+        load_table,
         use_container_width=True,
         hide_index=True,
     )
 
+    # ========================================================
+    # FINAL ENGINEERING SUMMARY
+    # ========================================================
 
-# ============================================================
-# BATTERY ANALYSIS
-# ============================================================
+    st.markdown("---")
 
-st.markdown("---")
-
-st.header(
-    "7️⃣ Battery Analysis"
-)
-
-battery_enabled = bool(
-    battery.get(
-        "enabled",
-        False,
-    )
-)
-
-if not battery_enabled:
-
-    st.info(
-        "🔵 البطارية غير مفعلة. "
-        "تم تجاهل جميع حسابات البطارية."
+    st.subheader(
+        "📋 الخلاصة الهندسية"
     )
 
-else:
+    final_checks = []
 
-    battery_voltage = current_result[
-        "battery_voltage"
-    ]
+    # Panel voltage
+    if limits:
 
-    actual_battery_kwh = current_result[
-        "actual_battery_kwh"
-    ]
-
-    required_battery_kwh = current_result[
-        "required_battery_kwh"
-    ]
-
-    battery_status = current_result[
-        "battery_status"
-    ]
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    with c1:
-
-        st.metric(
-            "Battery Voltage",
-            f"{battery_voltage:.1f} V",
+        final_checks.append(
+            (
+                "حد String الأدنى",
+                f"{limits['min_series']} ألواح",
+            )
         )
 
-    with c2:
-
-        st.metric(
-            "Available",
-            f"{actual_battery_kwh:.2f} kWh",
+        final_checks.append(
+            (
+                "حد String الأقصى",
+                f"{limits['max_series']} ألواح",
+            )
         )
 
-    with c3:
-
-        st.metric(
-            "Required",
-            f"{required_battery_kwh:.2f} kWh",
+    final_checks.append(
+        (
+            "عدد MPPT",
+            str(len(mppt_config)),
         )
+    )
 
-    with c4:
-
-        st.metric(
-            "Status",
-            status_icon(
-                battery_status
-            ),
+    final_checks.append(
+        (
+            "إجمالي Strings",
+            str(total_strings),
         )
+    )
 
-    if battery_status == "PASS":
+    if battery_enabled:
 
-        st.success(
-            "سعة البطارية تحقق المتطلب المبدئي."
-        )
-
-    elif battery_status == "FAIL":
-
-        st.error(
-            "سعة البطارية أقل من المتطلب."
+        final_checks.append(
+            (
+                "البطارية",
+                "مفعلة",
+            )
         )
 
     else:
 
-        st.warning(
-            "بيانات البطارية غير كافية لإجراء فحص كامل."
+        final_checks.append(
+            (
+                "البطارية",
+                "غير مفعلة",
+            )
         )
 
+    final_checks.append(
+        (
+            "نوع الإنفيرتر",
+            inverter_type,
+        )
+    )
 
-# ============================================================
-# DESIGN SUMMARY
-# ============================================================
+    final_checks.append(
+        (
+            "الفازات",
+            phase_type,
+        )
+    )
 
-st.markdown("---")
+    final_checks.append(
+        (
+            "DC Architecture",
+            architecture,
+        )
+    )
 
-st.header(
-    "8️⃣ Final Design Summary"
-)
-
-summary = {
-    "Panel": (
-        f'{panel.get("brand", "")} '
-        f'{panel.get("model", "")}'
-    ),
-
-    "Panel Power W":
-        pmax,
-
-    "Panel Voc V":
-        voc,
-
-    "Panel Vmp V":
-        vmp,
-
-    "Panel Isc A":
-        isc,
-
-    "Panel Imp A":
-        imp,
-
-    "Minimum Panels/String":
-        min_panels_per_string,
-
-    "Maximum Panels/String":
-        max_panels_per_string,
-
-    "Selected Panels/String":
-        selected_panels_per_string,
-
-    "Total MPPT":
-        len(mppts),
-
-    "Total Strings":
-        current_result[
-            "total_strings"
-        ],
-
-    "Total Panels":
-        current_result[
-            "total_panels"
-        ],
-
-    "PV Capacity kWp":
-        round(
-            current_result[
-                "pv_kw"
+    st.table(
+        {
+            "البند": [
+                x[0]
+                for x in final_checks
             ],
-            3,
-        ),
-
-    "DC/AC Ratio":
-        round(
-            current_result[
-                "dc_ac_ratio"
+            "النتيجة": [
+                x[1]
+                for x in final_checks
             ],
-            3,
-        ),
+        }
+    )
 
-    "String Vmp V":
-        round(
-            current_result[
-                "string_vmp"
-            ],
-            2,
-        ),
+    # ========================================================
+    # IMPORTANT ENGINEERING NOTE
+    # ========================================================
 
-    "String Cold Voc V":
-        round(
-            current_result[
-                "string_cold_voc"
-            ],
-            2,
-        ),
+    if system_errors:
 
-    "Daily Load kWh":
-        round(
-            current_result[
-                "daily_load_kwh"
-            ],
-            3,
-        ),
+        st.error(
+            "❌ توجد نقاط يجب تصحيحها قبل اعتماد التصميم."
+        )
 
-    "Required PV kWp":
-        round(
-            current_result[
-                "required_pv_kw"
-            ],
-            3,
-        ),
+    elif system_warnings:
 
-    "Battery Enabled":
-        battery_enabled,
+        st.warning(
+            "⚠️ التصميم مقبول مبدئياً، "
+            "لكن توجد نقاط تحتاج مراجعة Datasheet."
+        )
 
-    "Design Status":
-        status,
-}
+    else:
 
-st.json(
-    summary
-)
+        st.success(
+            "✅ لا توجد تعارضات رئيسية حسب البيانات المدخلة."
+        )
 
-
-# ============================================================
-# EXPORT JSON
-# ============================================================
-
-st.markdown("---")
-
-st.header(
-    "9️⃣ Export"
-)
-
-export_data = {
-    "input_data":
-        data,
-
-    "design":
-        summary,
-
-    "mppt_results":
-        current_result[
-            "mppt_results"
-        ],
-
-    "scenarios":
-        scenario_rows,
-}
-
-export_json = json.dumps(
-    export_data,
-    ensure_ascii=False,
-    indent=2,
-)
-
-st.download_button(
-    "⬇️ تحميل تقرير التصميم JSON",
-    data=export_json,
-    file_name="solar_design_report.json",
-    mime="application/json",
-)
-
-
-# ============================================================
-# ENGINEERING DISCLAIMER
-# ============================================================
-
-st.markdown("---")
-
-st.warning(
-    """
-⚠️ **تنبيه هندسي**
-
-هذه الأداة مخصصة للتصميم والتحقق المبدئي.
-
-قبل التنفيذ الفعلي يجب مراجعة:
-
-• Datasheet الأصلي للوح والإنفيرتر والبطارية  
-• معامل الحرارة الفعلي  
-• أقل وأعلى درجة حرارة للموقع  
-• Ampacity للكابلات  
-• DC/AC breakers  
-• DC/AC isolators  
-• SPD  
-• String fuses  
-• Earthing  
-• Short Circuit calculations  
-• Voltage drop  
-• متطلبات شركة الكهرباء  
-• الكود الكهربائي المحلي  
-
-لا تعتمد اختيار الكابل أو الفيوز أو القاطع أو SPD للتنفيذ النهائي اعتماداً
-على هذه الأداة وحدها.
-"""
-)
+    st.caption(
+        "تنبيه هندسي: هذه الأداة للمساعدة في التصميم والفحص "
+        "وليست بديلاً عن Datasheet وتعليمات الشركة المصنعة "
+        "والتحقق من درجة الحرارة والكابلات والحمايات "
+        "والجهد والتيار الفعليين قبل التنفيذ."
+    )
